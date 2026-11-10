@@ -12,8 +12,9 @@ beforeAll(() => { rig = createRig('drive'); });
 afterAll(() => rig.save());
 
 describe('full drive replayed from the simulator', () => {
-  it('every sampled frame of the drive is collision-free', () => {
+  const drive = (angleScale, name) => {
     const sim = createSim();
+    sim.angleScale = angleScale;
     const driver = createDriver(sim);
     const dt = 1 / 480;
     const moving = [], cruising = [], events = [];
@@ -53,10 +54,12 @@ describe('full drive replayed from the simulator', () => {
     expect(sim.state.omegaMain).toBeLessThan(0);
     shift('N');
 
-    rig.report.drive = { movingFrames: moving.length, cruisingFrames: cruising.length, events };
-    const a = rig.run('drive: frames while shifting', moving, { only: (x, y) => SHIFTING.test(x) || SHIFTING.test(y) });
-    const b = rig.run('drive: frames while cruising', cruising, { only: (x, y) => GEARBOX.test(x) || GEARBOX.test(y) });
+    rig.report[name] = { movingFrames: moving.length, cruisingFrames: cruising.length, events };
+    const a = rig.run(`${name}: frames while shifting`, moving, { only: (x, y) => SHIFTING.test(x) || SHIFTING.test(y) });
+    const b = rig.run(`${name}: frames while cruising`, cruising, { only: (x, y) => GEARBOX.test(x) || GEARBOX.test(y) });
     expect(a.res.collisions.size, a.message).toBe(0);
     expect(b.res.collisions.size, b.message).toBe(0);
-  });
+  };
+  it('every sampled frame of the drive is collision-free', () => drive(1, 'drive'));
+  it('every sampled frame is collision-free with angleScale 0.05 (slow-motion rotation)', () => drive(0.05, 'drive-slow'));
 });

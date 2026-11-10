@@ -18,9 +18,13 @@ npm run build      # produkční build do dist/
 |---|---|
 | Plyn / brzda / spojka | posuvníky, nebo držet `W`/`↑`, `S`/`↓`, `mezerník` |
 | Řazení | kulisa v dolní liště, nebo klávesy `1`–`5`, `R`, `N` |
-| Asistent spojky | zapnuto: spojku při řazení obsluhuje automat; vypnuto: řadíte sami a model ukáže, co se pokazí |
-| Rychlost přehrávání | 1× až 1/500 (zpomalení, ne nízké otáčky) |
+| Asistent spojky | zapnuto: spojku obsluhuje automat (rozjezd i bez plynu, vyšlápnutí při brzdění do zastavení, start se zařazeným stupněm); vypnuto: řadíte sami a model ukáže, co se pokazí |
+| Zpomalení | 1× až 1/500. **„jen otáčení“** (výchozí): mechanismus se točí pomalu, ale pedály, startér a řazení reagují ve skutečném čase. **„celý čas“**: skutečné zpomalení všeho (kapitoly Synchronizace a Zpátečka) |
 | Pohled | myš (otáčení, posun, zoom), režimy skříní: průhledné / řez / plné / skryté |
+| Jazyk | přepínač **CZ / EN** v záhlaví pravého panelu (nebo `?lang=en` v adrese); volba se pamatuje |
+
+Kapitola „Čtyři doby“ ukazuje v příčném řezu válcem nasávání směsi, zážeh s šířícím se čelem plamene a výfuk
+spalin; kapitola „Setrvačník a spojka“ má barevně odlišenou stranu motoru a převodovky a detail třecích ploch.
 
 Jedenáct kapitol v pravém panelu provede klikovým mechanismem, čtyřmi dobami, rozvodem, pořadím zapalování,
 spojkou, uspořádáním převodovky, tokem výkonu, synchronizací, zpátečkou a volnou jízdou.
@@ -47,7 +51,9 @@ npm run verify:visual    # jen headless Chrome nad dist/ (vyžaduje npm run buil
    - negativní kontroly dokazující, že detektor zabírá (např. rozvod posunutý o 114° → ventil narazí do pístu).
    Výsledky a naměřené vůle: `verify/out/collision-*.json`.
 4. **Build** aplikace a **vizuální kontrola** (`verify/visual.mjs`) – headless Chrome projde všechny kapitoly,
-   hlídá chyby v konzoli a prázdné plátno, vyzkouší řazení, zhasnutí motoru a výběr dílu; snímky v `verify/out/`.
+   hlídá chyby v konzoli a prázdné plátno, vyzkouší řazení, zhasnutí motoru a výběr dílu. Ovládání se ověřuje
+   **skutečnými kliknutími a klávesami v reálném čase** (motor zhasne i nastartuje do 2,5 s, jednička bez plynu se
+   rozjede bez zhasnutí, brzdění do zastavení motor neudusí); snímky v `verify/out/`.
 
 ## Struktura
 

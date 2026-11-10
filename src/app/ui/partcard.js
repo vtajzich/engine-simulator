@@ -1,4 +1,4 @@
-import { glossary, ui } from '../content/cs.js';
+import { glossary, ui, partLabel } from '../content/index.js';
 
 export function findEntry(part) {
   if (!part) return null;
@@ -14,9 +14,9 @@ export function buildPartCard(app, host) {
   app.on('select', part => {
     if (!part) { card.style.display = 'none'; return; }
     const e = findEntry(part);
-    card.innerHTML = `<button class="x" aria-label="${ui.partCardClose}">×</button><h4>${part.label}</h4>` +
-      `<div class="pid">${part.id}${part.body && part.body !== part.id ? ' · těleso ' + part.body : ''}</div>` +
-      `<p>${e ? e.text : 'Pro tuto součást zatím není popis.'}</p>`;
+    card.innerHTML = `<button class="x" aria-label="${ui.partCardClose}">×</button><h4>${partLabel(part)}</h4>` +
+      `<div class="pid">${part.id}${part.body && part.body !== part.id ? ui.partBody + part.body : ''}</div>` +
+      `<p>${e ? e.text : ui.noDescription}</p>`;
     card.style.display = 'block';
   });
 }

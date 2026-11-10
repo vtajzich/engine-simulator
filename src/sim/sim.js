@@ -3,6 +3,7 @@
 import { SPEC } from '../spec.js';
 import { derive, wrapTo } from '../kin/derive.js';
 import { releaseKin } from '../kin/clutch.js';
+import { guardOf } from './guard.js';
 import { gearLinear, gearForSleeve, gearNumber, ringForGear } from '../kin/gears.js';
 import { maxMisalign, xRingTip, xBlock, xDogTip, xEngaged, advanceRing, advanceDog } from '../kin/synchro.js';
 
@@ -56,11 +57,12 @@ export function createSim(spec = SPEC) {
   const w0 = E.idleRpm / RPM;
   const state = {
     t: 0,
+    angleScale: 1,
     thetaCrank: 0, omegaCrank: w0,
     thetaInput: 0, omegaInput: w0,
     thetaMain: 0, omegaMain: 0,
     clutchPedal: 0,
-    clutch: { capacityNm: C.maxTorqueNm, locked: true, torqueNm: 0 },
+    clutch: { capacityNm: C.maxTorqueNm, locked: true, torqueNm: 0, guard: 0 },
     rails: { s12: 0, s34: 0, s5: 0 },
     lever: { col: 0, row: 0, target: 'N' },
     synchro: {
@@ -77,6 +79,7 @@ export function createSim(spec = SPEC) {
   };
 
   let events = [];
+  let angleScale = 1;
   const emit = (type, detail) => events.push({ t: state.t, type, detail });
   let idleI = 0.1, cranking = false, slipDir = 1;
   let tie = null;                              // { g, K, sign }: input side kinematically tied to the mainshaft
@@ -271,7 +274,10 @@ export function createSim(spec = SPEC) {
     dtSub = h;
     // pedal
     const mx = h / PEDAL_FULL_TRAVEL_S;
-    s.clutchPedal += clamp(inp.clutchPedal - s.clutchPedal, -mx, mx);
+    // optional slip guard (inputs.clutchGuard): pedal target = max(user/driver pedal, guard(rpm)), re-evaluated every sub-step
+    const guard = inp.clutchGuard && s.gear !== 'N' && s.engine.running ? guardOf(s.omegaCrank * RPM) : 0;
+    s.clutch.guard = guard;
+    s.clutchPedal += clamp(Math.max(inp.clutchPedal, guard) - s.clutchPedal, -mx, mx);
     const cap = capacityFor(s.clutchPedal);
     s.clutch.capacityNm = cap;
 
@@ -365,10 +371,12 @@ export function createSim(spec = SPEC) {
     }
 
     s.omegaCrank = wE; s.omegaInput = wX; s.omegaMain = wM;
-    s.thetaCrank += wE * h;
-    s.thetaMain += wM * h;
+    // angleScale slows only the displayed rotation; every velocity/torque above stays in real time
+    const ha = h * angleScale;
+    s.thetaCrank += wE * ha;
+    s.thetaMain += wM * ha;
     if (tie) s.thetaInput = (s.thetaMain + tie.K - tie.g.B) / tie.g.A;
-    else s.thetaInput += wX * h;
+    else s.thetaInput += wX * ha;
     s.t += h;
   }
 
@@ -399,7 +407,7 @@ export function createSim(spec = SPEC) {
   function step(dt, inputs = {}) {
     const inp = {
       throttle: inputs.throttle ?? 0, clutchPedal: inputs.clutchPedal ?? 0, brake: inputs.brake ?? 0,
-      lever: inputs.lever ?? 'N', ignition: inputs.ignition ?? true,
+      lever: inputs.lever ?? 'N', ignition: inputs.ignition ?? true, clutchGuard: inputs.clutchGuard === true,
     };
     if (!(dt > 0)) return;
     const n = Math.ceil(dt / 0.0005 - 1e-9), h = dt / n;
@@ -418,7 +426,11 @@ export function createSim(spec = SPEC) {
     } else s.thetaInput += dTheta;
   }
 
-  return { step, rotateCrank, state, drainEvents() { const e = events; events = []; return e; } };
+  return {
+    step, rotateCrank, state, drainEvents() { const e = events; events = []; return e; },
+    get angleScale() { return angleScale; },
+    set angleScale(v) { angleScale = clamp(Number.isFinite(v) ? v : 1, 0.0005, 1); state.angleScale = angleScale; },
+  };
 }
 
 export default createSim;

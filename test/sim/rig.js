@@ -28,7 +28,7 @@ export function checkInvariants(s, prev, dt) {
   // I4 angle continuity
   if (prev) {
     for (const [k, w] of [['thetaCrank', 'omegaCrank'], ['thetaInput', 'omegaInput'], ['thetaMain', 'omegaMain']]) {
-      const lim = Math.abs(s[w]) * dt + 0.2;
+      const lim = Math.max(Math.abs(s[w]), Math.abs(prev[w] ?? 0)) * dt * (s.angleScale ?? 1) + 0.2;
       if (Math.abs(s[k] - prev[k]) > lim) throw new Error(`I4 ${k} jumped ${s[k] - prev[k]} at t=${s.t}`);
     }
   }
@@ -64,28 +64,32 @@ export function checkInvariants(s, prev, dt) {
   }
 }
 
-export function makeRig({ dt = 1 / 240 } = {}) {
+// `dts`: optional cycle of caller step sizes (e.g. real frame jitter); each driver.update + sim.step pair uses the next one.
+export function makeRig({ dt = 1 / 240, angleScale = 1, dts = null } = {}) {
+  let di = 0;
   const sim = createSim();
+  sim.angleScale = angleScale;
   const driver = createDriver(sim);
   const events = [];
   const rig = {
-    sim, driver, dt, events, s: sim.state,
+    sim, driver, dt, dts, lastDt: dt, events, s: sim.state,
     prev: null,
     /** one step; user = { throttle, brake, clutchPedal, lever, ignition }; useDriver routes through the driver */
     step(user = {}, useDriver = true) {
+      const dt = rig.dts ? rig.dts[di++ % rig.dts.length] : rig.dt;
+      rig.lastDt = dt;
       const inp = useDriver ? driver.update(dt, user) : user;
-      const before = { thetaCrank: sim.state.thetaCrank, thetaInput: sim.state.thetaInput, thetaMain: sim.state.thetaMain };
+      const before = { thetaCrank: sim.state.thetaCrank, thetaInput: sim.state.thetaInput, thetaMain: sim.state.thetaMain,
+        omegaCrank: sim.state.omegaCrank, omegaInput: sim.state.omegaInput, omegaMain: sim.state.omegaMain };
       sim.step(dt, inp);
       for (const e of sim.drainEvents()) events.push(e);
       checkInvariants(sim.state, before, dt);
     },
     run(seconds, user = {}, useDriver = true) {
-      const n = Math.round(seconds / dt);
-      for (let i = 0; i < n; i++) rig.step(typeof user === 'function' ? user(sim.state) : user, useDriver);
+      for (let el = 0; el < seconds - rig.dt / 2; el += rig.lastDt) rig.step(typeof user === 'function' ? user(sim.state) : user, useDriver);
     },
     until(cond, maxSeconds, user = {}, useDriver = true) {
-      const n = Math.round(maxSeconds / dt);
-      for (let i = 0; i < n; i++) {
+      for (let el = 0; el < maxSeconds - rig.dt / 2; el += rig.lastDt) {
         if (cond(sim.state)) return true;
         rig.step(typeof user === 'function' ? user(sim.state) : user, useDriver);
       }

@@ -1,5 +1,5 @@
 import { poseFromState } from '../kin/pose.js';
-import { ui } from './content/cs.js';
+import { ui } from './content/index.js';
 
 /** Frame loop: input → driver → sim → pose → assembly → render. */
 export function createLoop(app) {
@@ -8,7 +8,8 @@ export function createLoop(app) {
 
   function handleEvents() {
     const evs = app.sim.drainEvents();
-    if (evs.some(e => e.type === 'stall')) {
+    // ignore stalls that happened before the user's last click on the start button (app.ignitionT)
+    if (evs.some(e => e.type === 'stall' && e.t >= (app.ignitionT ?? -1))) {
       // the starter may already have restarted the engine within this frame; keep it off until the user starts it
       app.user.ignition = false; app.stallFlag = true;
       app.toast(ui.toasts.stall, 'bad'); app.emit('inputs');
@@ -34,6 +35,7 @@ export function createLoop(app) {
     app.assembly.update(app.pose);
     app.highlight.setFlow(app.pose.flow);
     app.labels.update();
+    app.gapMarks.update(app.view === 'detail', app.sim.state.clutchPedal);
     scene.markDirty();
   }
   app.updatePose = updatePose;
@@ -47,7 +49,8 @@ export function createLoop(app) {
     if (document.hidden) return;
     if (app.input.update(rdt)) app.emit('inputs');
     if (!app.paused) {
-      const sdt = rdt * app.timeScale;
+      const sdt = rdt * app.timeScale;           // real time unless the user chose "full time"
+      app.sim.angleScale = app.rotScale;         // otherwise only the drawn rotation is slowed
       const u = { ...app.user };
       const ins = app.assist ? app.driver.update(sdt, u) : u;
       app.sim.step(sdt, ins);

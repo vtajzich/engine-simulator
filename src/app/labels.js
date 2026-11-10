@@ -1,7 +1,24 @@
 import * as THREE from 'three';
+import { partLabel } from './content/index.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-const box = new THREE.Box3();
+const box = new THREE.Box3(), mbox = new THREE.Box3(), inv = new THREE.Matrix4(), rel = new THREE.Matrix4();
+// Bodies that spin about their own local X axis: the anchor is projected onto that axis so it cannot drift with the angle.
+const SPINNERS = /^(crank|camIn|camEx|inputShaft|counterShaft|mainShaft|gear[1235]|idlerR|sleeve.*|ring.*|clutchDisc|pressurePlate)$/;
+
+/** Bounding box of a part in its OWN (rotating) frame: the anchor derived from it does not depend on the current angle. */
+function localBox(part, out) {
+  part.updateWorldMatrix(true, true);
+  inv.copy(part.matrixWorld).invert();
+  out.makeEmpty();
+  part.traverse(m => {
+    if (!m.isMesh || m.isInstancedMesh || !m.visible || m.userData.noCollide || !m.geometry) return;
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    mbox.copy(m.geometry.boundingBox).applyMatrix4(rel.multiplyMatrices(inv, m.matrixWorld));
+    out.union(mbox);
+  });
+  return out;
+}
 
 /** DOM labels with leader lines. Spec per label: 'partId' or { id, a: 'c'|'t'|'b', dx, dy } (a = anchor on the part's box, dx/dy = pixel offset). */
 export function createLabels({ index, scene, host }) {
@@ -11,7 +28,7 @@ export function createLabels({ index, scene, host }) {
   svg.setAttribute('style', 'position:absolute;inset:0;width:100%;height:100%;overflow:visible');
   layer.appendChild(svg);
   host.appendChild(layer);
-  let items = [], on = false, tick = 0;
+  let items = [], on = false;
   const v = new THREE.Vector3();
 
   function set(specs) {
@@ -24,14 +41,14 @@ export function createLabels({ index, scene, host }) {
       if (!part) return;
       const el = document.createElement('div');
       el.className = 'lbl';
-      el.textContent = part.userData.part.label;
+      el.textContent = partLabel(part);
       layer.appendChild(el);
       const line = document.createElementNS(NS, 'line'); line.setAttribute('stroke', '#ff9e2c'); line.setAttribute('stroke-opacity', '.8');
       const dot = document.createElementNS(NS, 'circle'); dot.setAttribute('r', '2.5'); dot.setAttribute('fill', '#ff9e2c');
       svg.append(line, dot);
       const n = list.length;
       items.push({
-        part, el, line, dot, a: s.a ?? 'c', anchor: new THREE.Vector3(), ok: false,
+        part, el, line, dot, a: s.a ?? 'c', anchor: new THREE.Vector3(), ok: false, local: new THREE.Vector3(), halfY: 0, spin: SPINNERS.test(part.userData.part.body ?? '') || SPINNERS.test(s.id),
         dx: s.dx ?? 34, dy: s.dy ?? (i - (n - 1) / 2) * 24,
       });
     });
@@ -40,19 +57,19 @@ export function createLabels({ index, scene, host }) {
     layer.style.display = on ? 'block' : 'none';
     if (!on) return;
     const w = host.clientWidth, h = host.clientHeight;
-    tick++;
     const hr = host.getBoundingClientRect();
     let topMin = 6;
     const tb = host.querySelector('#toolbar');
     if (tb) for (const c of tb.children) topMin = Math.max(topMin, c.getBoundingClientRect().bottom - hr.top + 10);
     for (const it of items) {
-      if (tick % 6 === 1 || !it.ok) {
-        box.setFromObject(it.part);
+      if (!it.ok) {                    // once per label (retried only while the part has no geometry yet)
+        localBox(it.part, box);
         it.ok = !box.isEmpty();
-        if (it.ok) {
-          box.getCenter(it.anchor);
-          if (it.a === 't') it.anchor.y = box.max.y; else if (it.a === 'b') it.anchor.y = box.min.y;
-        }
+        if (it.ok) { box.getCenter(it.local); it.halfY = (box.max.y - box.min.y) / 2; if (it.spin) it.local.set(it.local.x, 0, 0); }
+      }
+      if (it.ok) {
+        it.anchor.copy(it.local).applyMatrix4(it.part.matrixWorld);
+        if (it.a === 't') it.anchor.y += it.halfY; else if (it.a === 'b') it.anchor.y -= it.halfY;   // along WORLD Y, not rotated with the part
       }
       let show = it.ok && it.part.visible;
       if (show) { v.copy(it.anchor).project(scene.camera); show = v.z < 1 && v.z > -1; }
@@ -68,5 +85,5 @@ export function createLabels({ index, scene, host }) {
       it.dot.setAttribute('cx', ax); it.dot.setAttribute('cy', ay);
     }
   }
-  return { set, update, setOn(b) { on = b; update(); }, get on() { return on; } };
+  return { set, update, ids: () => items.map(it => it.part.userData.part.id), setOn(b) { on = b; update(); }, get on() { return on; } };
 }

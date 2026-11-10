@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 export const BG = 0x0c0e11;
+const FOV = 36;
 
 export function createScene(host) {
   const canvas = document.createElement('canvas');
@@ -10,7 +11,7 @@ export function createScene(host) {
   canvas.tabIndex = 0;
   host.prepend(canvas);
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -35,7 +36,7 @@ export function createScene(host) {
   grid.material.transparent = true; grid.material.opacity = 0.55; grid.material.depthWrite = false;
   scene.add(grid);
 
-  const camera = new THREE.PerspectiveCamera(36, 1, 5, 8000);
+  const camera = new THREE.PerspectiveCamera(FOV, 1, 5, 8000);
   camera.position.set(380, 360, 1380);
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
@@ -66,10 +67,10 @@ export function createScene(host) {
   function flyTo(view, duration = 1.2) {
     if (!view) return;
     if (duration <= 0) {
-      camera.position.fromArray(view.position); controls.target.fromArray(view.target); controls.update(); dirty = true; tween = null; return;
+      camera.position.fromArray(view.position); controls.target.fromArray(view.target); camera.fov = view.fov ?? FOV; camera.updateProjectionMatrix(); controls.update(); dirty = true; tween = null; return;
     }
     tween = {
-      t: 0, d: duration,
+      t: 0, d: duration, f0: camera.fov, f1: view.fov ?? FOV,
       p0: camera.position.clone(), t0: controls.target.clone(),
       p1: new THREE.Vector3().fromArray(view.position), t1: new THREE.Vector3().fromArray(view.target),
     };
@@ -80,6 +81,7 @@ export function createScene(host) {
     const k = ease(tween.t);
     camera.position.lerpVectors(tween.p0, tween.p1, k);
     controls.target.lerpVectors(tween.t0, tween.t1, k);
+    if (tween.f0 !== tween.f1) { camera.fov = tween.f0 + (tween.f1 - tween.f0) * k; camera.updateProjectionMatrix(); }
     if (tween.t >= 1) tween = null;
     dirty = true;
     return true;
@@ -87,8 +89,11 @@ export function createScene(host) {
   canvas.addEventListener('pointerdown', () => { tween = null; });
   canvas.addEventListener('wheel', () => { tween = null; }, { passive: true });
 
+  /** global clipping plane for every material (null removes it) */
+  function setGlobalClip(plane) { renderer.clippingPlanes = plane ? [plane] : []; dirty = true; }
+
   return {
-    renderer, scene, camera, controls, canvas, flyTo, updateTween,
+    setGlobalClip, renderer, scene, camera, controls, canvas, flyTo, updateTween,
     markDirty() { dirty = true; },
     consumeDirty() { const d = dirty; dirty = false; return d; },
     get tweening() { return !!tween; },

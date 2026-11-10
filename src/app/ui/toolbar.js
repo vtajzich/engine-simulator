@@ -1,4 +1,4 @@
-import { ui } from '../content/cs.js';
+import { ui } from '../content/index.js';
 
 const T = ui.toolbar;
 const group = (label, ...kids) => {
@@ -29,7 +29,7 @@ export function buildToolbar(app, host) {
   bar.appendChild(group(T.view, ...views));
 
   const toggle = document.createElement('button');
-  toggle.id = 'panel-toggle'; toggle.type = 'button'; toggle.title = 'Panel';
+  toggle.id = 'panel-toggle'; toggle.type = 'button'; toggle.title = ui.panelToggle;
   toggle.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3l5 5-5 5"/></svg>';
   toggle.style.transform = 'none';
   toggle.addEventListener('click', () => { document.getElementById('app').classList.toggle('collapsed'); });

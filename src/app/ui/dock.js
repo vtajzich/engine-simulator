@@ -1,7 +1,7 @@
 import { SPEC } from '../../spec.js';
 import { derive, deg, mod } from '../../kin/derive.js';
-import { ui } from '../content/cs.js';
-import { drawGauge, fmtNum as fmt, createSyncTracker } from '../diagrams.js';
+import { ui, num as fmt } from '../content/index.js';
+import { drawGauge, createSyncTracker } from '../diagrams.js';
 
 const D = derive();
 const U = ui.dock;
@@ -24,8 +24,11 @@ export function buildDock(app, root) {
   pauseBtn.addEventListener('click', () => app.setPaused(!app.paused));
   tr.append(pauseBtn, h('span', 't-lbl', U.speed));
   const seg = h('div', 'seg');
-  const segBtns = SPEEDS.map(([v, t]) => { const b = h('button', '', t); b.type = 'button'; b.dataset.v = v; b.addEventListener('click', () => app.setTimeScale(v)); seg.appendChild(b); return b; });
+  const segBtns = SPEEDS.map(([v, t]) => { const b = h('button', '', t); b.type = 'button'; b.dataset.v = v; b.addEventListener('click', () => app.setSlow(v)); seg.appendChild(b); return b; });
   tr.appendChild(seg);
+  const mode = h('div', 'seg mode'); mode.title = U.modeTip;
+  const modeBtns = [['rot', U.modeRot], ['time', U.modeTime]].map(([k, t]) => { const b = h('button', '', t); b.type = 'button'; b.dataset.m = k; b.addEventListener('click', () => app.setSlowMode(k)); mode.appendChild(b); return b; });
+  tr.appendChild(mode);
   const real = h('span', 't-real', ''); tr.appendChild(real);
   const scrub = h('div', 'scrub');
   scrub.appendChild(h('span', 't-lbl', U.crankAngle));
@@ -57,14 +60,16 @@ export function buildDock(app, root) {
   const rsec = h('div', 'dk-sec readouts'); main.appendChild(rsec);
   const rows = {};
   const row = (k, label) => { const r = h('div', 'rd'); r.append(h('span', '', label)); const v = h('span', 'v num', '—'); r.appendChild(v); rsec.appendChild(r); rows[k] = v; };
+  row('eng', U.engineLbl);
   row('gear', `${U.gear} / ${U.ratio}`);
-  row('crank', U.rpmCrank + ' (ot/min)');
+  row('crank', `${U.rpmCrank} (${ui.rpm})`);
   row('input', U.rpmInput);
   row('counter', U.rpmCounter);
   row('main', U.rpmMain);
   const chips = h('div', 'chipline');
   const chipClutch = h('span', 'chip', U.clutchState), chipTq = h('span', 'chip num', ''), chipSync = h('span', 'chip', U.syncPhase);
   chips.append(chipClutch, chipTq, chipSync); rsec.appendChild(chips);
+  const timeBadge = h('div'); timeBadge.id = 'timebadge'; document.getElementById('stage').appendChild(timeBadge);
   const drvBadge = h('div'); drvBadge.id = 'drvbadge'; document.getElementById('stage').appendChild(drvBadge);
   rsec.title = U.negHint;
 
@@ -83,14 +88,18 @@ export function buildDock(app, root) {
     sliders[name] = { wrap, inp, out, paint };
   };
   mkSlider('throttle', U.throttle, 'W / ↑', 'c1');
-  mkSlider('clutchPedal', U.clutch, 'mezerník', 'c2');
+  mkSlider('clutchPedal', U.clutch, ui.clutchKey, 'c2');
   mkSlider('brake', U.brake, 'S / ↓', 'c3');
   const r2 = h('div', 'row2');
   const startBtn = h('button', 'btn start', U.stop); startBtn.type = 'button';
+  let shownRunning = true;
   startBtn.addEventListener('click', () => {
-    const on = !app.sim.state.engine.running;
-    app.user.ignition = on; app.stallFlag = false;
-    if (on) app.toast(ui.toasts.start, 'ok');
+    // Ignition follows what the button SHOWS (set by the last UI tick), not the live engine flag: a click on the start button
+    // always switches the ignition on, even while the engine still coasts or a stall banner is up. ignitionT marks the
+    // click so that the stall handler (loop.js) ignores stall events older than the click.
+    const s = app.sim.state, on = !shownRunning;
+    app.user.ignition = on; app.stallFlag = false; app.ignitionT = s.t;
+    if (on && !app.assist && s.gear !== 'N' && s.gear != null && app.user.clutchPedal < 0.5) app.toast(ui.toasts.startInGear, 'warn', 5200);
     app.emit('inputs');
   });
   const assistLbl = h('label', 'switch'); assistLbl.title = U.assistTip;
@@ -121,9 +130,9 @@ export function buildDock(app, root) {
   function syncInputs() {
     for (const n of ['throttle', 'clutchPedal', 'brake']) {
       if (document.activeElement === sliders[n].inp) continue;
-      const v = (n === 'clutchPedal' && app.assist && app.driver.busy) ? app.sim.state.clutchPedal : app.user[n];
+      const v = (n === 'clutchPedal' && app.assist && app.driver.stage && app.driver.stage !== 'idle') ? app.sim.state.clutchPedal : app.user[n];
       if (Math.abs(Number(sliders[n].inp.value) - v) > 0.004) setSlider(n, v);
-      sliders[n].wrap.classList.toggle('auto', n === 'clutchPedal' && app.assist && app.driver.busy);
+      sliders[n].wrap.classList.toggle('auto', n === 'clutchPedal' && app.assist && !!app.driver.stage && app.driver.stage !== 'idle');
     }
     assist.checked = app.assist;
   }
@@ -131,7 +140,11 @@ export function buildDock(app, root) {
   app.on('stateReset', syncInputs);
   app.on('stall', () => {});
   app.on('timescale', () => {
-    segBtns.forEach(b => b.setAttribute('aria-pressed', String(!app.paused && Math.abs(Number(b.dataset.v) - app.timeScale) < 1e-9)));
+    segBtns.forEach(b => b.setAttribute('aria-pressed', String(!app.paused && Math.abs(Number(b.dataset.v) - app.slow) < 1e-9)));
+    modeBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === app.slowMode)));
+    const n = Math.round(1 / app.slow), show = app.slowMode === 'time' && app.slow < 0.999;
+    timeBadge.style.display = show ? 'block' : 'none';
+    timeBadge.textContent = ui.timeBadge(n);
     pauseBtn.innerHTML = app.paused ? ICON_PLAY : ICON_PAUSE; pauseBtn.title = app.paused ? U.play : U.pause;
   });
 
@@ -139,7 +152,7 @@ export function buildDock(app, root) {
   const trackSync = createSyncTracker();
   const stallBanner = h('div'); stallBanner.id = 'stall'; stallBanner.textContent = ui.stallBanner;
   document.getElementById('stage').appendChild(stallBanner);
-  const tachCtx = { max: 8000, majorStep: 1000, minorStep: 500, redFrom: SPEC.engine.redlineRpm, topNote: '× 1000', unit: 'ot/min', scale: 1000 };
+  const tachCtx = { max: 8000, majorStep: 1000, minorStep: 500, redFrom: SPEC.engine.redlineRpm, topNote: '× 1000', unit: ui.rpm, scale: 1000 };
   const spdCtx = { max: 240, majorStep: 40, minorStep: 20, unit: 'km/h', scale: 1 };
 
   app.on('tick', ({ state: s }) => {
@@ -162,18 +175,23 @@ export function buildDock(app, root) {
     chipSync.className = 'chip' + (act ? (sy.phase === 'blocking' ? ' bad' : ' on') : '');
     chipSync.textContent = U.syncShort + ': ' + sy.text;
 
-    const busy = app.assist && app.driver.busy;
+    const stg = app.driver.stage;
+    const busy = app.assist && !!stg && stg !== 'idle' && !!ui.driverStages[stg];   // unknown stage names hide the badge
     drvBadge.style.display = busy ? 'block' : 'none';
-    if (busy) drvBadge.textContent = U.driver + ': ' + (ui.driverStages[app.driver.stage] ?? app.driver.stage);
+    if (busy) drvBadge.textContent = U.driver + ': ' + ui.driverStages[stg];
 
-    real.innerHTML = `${U.realRpm}: <b>${fmt(rpmE)}</b> ot/min` + (Math.abs(app.timeScale - 1) > 1e-9 ? ` · ${U.shownRpm}: ${fmt(rpmE * app.timeScale, rpmE * app.timeScale < 10 ? 1 : 0)}` : '');
+    const shown = rpmE * app.slow;
+    real.innerHTML = `${U.realRpm}: <b>${fmt(rpmE)}</b> ${ui.rpm}` + (app.slow < 0.999 ? ` · ${U.shownRpm}: ${fmt(shown, shown < 10 ? 1 : 0)}` : '');
 
     // crank scrubber
     if (!scrubbing) { const a = mod(deg(s.thetaCrank), 720); scr.value = a; scr.style.setProperty('--p', (a / 7.2) + '%'); scrOut.textContent = Math.round(a) + '°'; }
 
     // ignition / start button
     const running = s.engine.running;
+    const eng = running ? 'run' : app.user.ignition ? 'starting' : rpmE > 5 ? 'coast' : 'off';
+    shownRunning = running;
     startBtn.textContent = running ? U.stop : U.start;
+    rows.eng.textContent = U.engine[eng]; rows.eng.dataset.s = eng;
     startBtn.classList.toggle('alert', !running && !app.user.ignition);
     stallBanner.style.display = !running && !app.user.ignition ? 'block' : 'none';
     stallBanner.textContent = app.stallFlag ? ui.stallBanner : ui.engineOff;

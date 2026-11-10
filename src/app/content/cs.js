@@ -14,7 +14,11 @@ export const ui = {
     view: 'Pohled', viewOverview: 'Celek', viewEngine: 'Motor', viewClutch: 'Spojka', viewGearbox: 'Převodovka',
   },
   dock: {
-    pause: 'Pozastavit', play: 'Spustit', speed: 'Rychlost přehrávání', realRpm: 'Skutečně', shownRpm: 'zobrazeno',
+    pause: 'Pozastavit', play: 'Spustit', speed: 'Zpomalení', modeRot: 'jen otáčení', modeTime: 'celý čas',
+    modeTip: 'Jen otáčení: hřídele se kreslí pomaleji, ale pedály, startér a řazení reagují hned. Celý čas: zpomalí se úplně všechno, i ovládání.',
+    engineLbl: 'Motor',
+    engine: { run: 'Motor běží', coast: 'Motor dobíhá', off: 'Motor stojí', starting: 'Startuji…' },
+    realRpm: 'Skutečně', shownRpm: 'zobrazeno',
     crankAngle: 'Úhel kliky',
     throttle: 'Plyn', clutch: 'Spojka', brake: 'Brzda',
     start: 'Nastartovat', stop: 'Vypnout motor',
@@ -26,13 +30,15 @@ export const ui = {
     neutral: 'N', ratio: 'převod',
     negHint: 'Záporné otáčky = opačný směr otáčení než klikový hřídel.',
   },
-  driverStages: { declutch: 'sešlapuje spojku', 'wait-stop': 'čeká na zastavení vstupního hřídele', shift: 'řadí', release: 'pouští spojku' },
+  driverStages: { slip: 'nechává spojku prokluzovat (nízké otáčky)', declutch: 'sešlapuje spojku', 'wait-stop': 'čeká na zastavení vstupního hřídele', shift: 'řadí', release: 'pouští spojku', hold: 'drží spojku', start: 'startuje' },
+  timeBadge: n => `Čas zpomalen ${n}× – pedály, startér a řazení reagují stejně pomalu`,
   syncPhases: { free: 'volný', blocking: 'blokuje', indexing: 'dorovnává zuby', engaged: 'zařazeno', leaving: 'vyřazuje' },
   toasts: {
     stall: 'Motor zhasl – spojka sepnula při stojícím voze',
     grindClutch: 'Synchron blokuje: bez vyšlápnuté spojky se otáčky nesrovnají',
     grindReverse: 'Zpátečka není synchronizovaná – zastavte a počkejte, až se hřídele dotočí',
     start: 'Motor nastartoval',
+    startInGear: 'Startér táhne celé auto – sešlápněte spojku nebo vyřaďte',
     engaged: g => `Zařazeno: ${g === 'N' ? 'neutrál' : g === 'R' ? 'zpátečka' : g + '. stupeň'}`,
   },
   stallBanner: 'Motor zhasl', engineOff: 'Motor vypnut',
@@ -40,11 +46,58 @@ export const ui = {
   glossSearch: 'Hledat součást…',
   clickHint: 'Kliknutím na součást zobrazíte její popis.',
   loading: 'Sestavuji model…',
+  loadingMsg: 'Generuji ozubení, hřídele a skříně', loadingMsgDots: 'Generuji ozubení, hřídele a skříně…',
+  simMissing: 'Simulátor (src/sim) není k dispozici.', errorPrefix: 'Chyba: ',
+  docTitle: 'Motor a převodovka – interaktivní 3D model',
+  docDescription: 'Interaktivní 3D vysvětlení čtyřdobého motoru, spojky a manuální převodovky.',
+  panelSubtitle: '4T · 1998 cm³ · 5+R',
+  chapterKicker: 'Kapitola ',
+  simplHeading: 'Zjednodušení modelu',
+  simplIntro: 'Model je mechanicky věrný v kinematice (úhly, zdvihy, převody, pořadí), ale několik věcí je záměrně zjednodušeno nebo odhadnuto:',
+  partBody: ' · těleso ', noDescription: 'Pro tuto součást zatím není popis.',
+  clutchKey: 'mezerník', rpm: 'ot/min', gapMark: 'mezera ',
+  langSwitch: 'Jazyk', langCs: 'Čeština', langEn: 'English', panelToggle: 'Panel',
+  diag: {
+    strokes: { intake: 'Sání', compression: 'Komprese', power: 'Expanze', exhaust: 'Výfuk', combustion: 'Hoření' },
+    pvCaption: 'Diagram p–V válce 1 (tlak v barech, objem v cm³)', pvAxisV: 'objem V (cm³)',
+    pvInfo: (stroke, psi, p, V) => `${stroke} · úhel cyklu ${psi}° · p = ${p} bar · V = ${V} cm³`,
+    pistonCaption: 'Dráha a rychlost pístu podle úhlu kliky (0° = horní úvrať)',
+    pistonTravel: 'dráha pístu (0–86 mm)', pistonSine: 'sinus', pistonSpeed: 'rychlost (střed = 0)',
+    vMax: a => `v max ≈ ${a}°`,
+    pistonInfo: (a, x) => `úhel ${a}° · poloha ${x} mm pod HÚ`,
+    curveCaption: 'Pedál → vypínací ložisko → přítlačný kotouč → kapacita spojky', pedalTravel: 'dráha pedálu',
+    capacity: 'kapacita', plateLift: 'zdvih kotouče', bearingTravelDashed: 'dráha ložiska (čárkovaně)',
+    curveInfo: (b, l, c, n) => `ložisko ${b} mm · kotouč ${l} mm · kapacita ${c} % (${n} N·m)`,
+    live: { pedal: 'Pedál', brg: 'Dráha ložiska', lift: 'Zdvih přítl. kotouče', gap: 'Mezera na stranu', cap: 'Kapacita (moment)', slip: 'Prokluz (motor − vstup)', state: 'Stav spojky' },
+    directDrive: 'přímý záběr', thGear: 'Stupeň', thTeeth: 'zuby předl./vstup · výstup/předl.', thRatio: 'Převod',
+    ratioInfo: 'Převod = otáčky vstupu / otáčky výstupu. Záporný = opačný směr otáčení.', ratioCaption: 'Převodové poměry',
+    shaft: { in: 'Vstupní hřídel (34 z)', counter: 'Předlohový hřídel', g1: 'Volné kolo 1. (57 z)', g2: 'Volné kolo 2. (47 z)', g3: 'Volné kolo 3. (39 z)', g5: 'Volné kolo 5. (29 z)', main: 'Výstupní hřídel' },
+    thBody: 'Těleso', thRatioEngine: 'poměr k motoru', shaftCaption: 'Živé otáčky hřídelů a volných kol',
+    reverseCaption: 'Mezikolo zpátečky', reverseLeft: 'zpátečka', reverseRight: '5. stupeň',
+    reverseInfo: (x, a, b) => `poloha tyče ${x} mm (zpátečka −9,5 mm) · vstupní hřídel ${a} ot/min · výstupní ${b} ot/min`,
+    reverseStopped: 'hřídele stojí – mezikolo smí zabrat', reverseTurning: 'hřídele se točí – zuby by narážely (skřípění)',
+    chain: { crank: 'Klikový hřídel + setrvačník', disc: 'Lamela spojky', input: 'Vstupní hřídel (34 z)', counter: 'Předlohový hřídel (46 z …)', freeGear: 'Volné kolo + objímka', output: 'Výstupní hřídel' },
+    chainCaption: 'Cesta výkonu (svítí, co přenáší moment)',
+    gearNames: { g1: '1. stupeň', g2: '2. stupeň', g3: '3. stupeň', input: '4. stupeň', g5: '5. stupeň' },
+    syncCaption: 'Poloha objímky při řazení (mm zdvihu od neutrálu)',
+    syncMarks: { cone: 'kužel', blocking: 'blokace', teeth: 'zuby kola', engaged: 'zařazeno' },
+    syncPhase: 'fáze: ', syncIdle: 'klid',
+    syncChoice: g => ` · volba: ${g}`, syncPos: x => ` · poloha ${x} mm`,
+    syncDiff: (dn, locked) => `rozdíl otáček kola a výstupního hřídele: ${dn} · spojka ${locked ? 'sepnutá' : 'nesepnutá'}`,
+    timing1Caption: 'Rozvod válce 1 podle úhlu klikového hřídele (0–720°)', timing4Caption: 'Zdvihy, ventily a jiskra všech válců (0–720°)',
+    thCyl: 'Válec', thStroke: 'Zdvih', thCycleAngle: 'Úhel cyklu', thP: 'p (bar)', cylCaption: 'Co dělá který válec právě teď',
+  },
 };
 
 /* ------------------------------------------------------------------ chapters */
 
 const P = (...paras) => paras.map(p => `<p>${p}</p>`).join('');
+
+// Transverse section through cylinder 1: keeps x >= -16.6 (between the intake valve at x = -17.6 and the exhaust valve at
+// x = -15.6 of cylinder 1, so one valve of each kind is cut through its axis). The camera looks rearward (+X): the intake
+// side (+Z) is on the right, the exhaust side on the left.
+const SECTION_C1 = { normal: [1, 0, 0], constant: 16.6 };
+const VIEW_SECTION = (extra = {}) => ({ id: 'rez', label: 'Příčný řez válcem 1', section: SECTION_C1, fit: 400, camera: { position: [-660, 130, -50], target: [0, 130, 0] }, ...extra });
 
 export const chapters = [
   {
@@ -59,14 +112,14 @@ export const chapters = [
       'Setrvačník, víko spojky a přítlačný kotouč se otáčejí s motorem; lamela, vstupní a předlohový hřídel se otáčejí s převodovkou. Lamela <b>není</b> přišroubovaná k setrvačníku – drží ji jen tření.',
       'Vačkové hřídele se otáčejí <b>poloviční rychlostí</b> než klikový hřídel.',
       'Pohled otáčíte myší (levé tlačítko), zoom kolečkem, posun pravým tlačítkem. Kliknutím na součást zobrazíte její popis.',
-      'Přehrávání je zpomalené – skutečné otáčky motoru vidíte vedle volby rychlosti.',
+      'Zpomaleno je jen otáčení hřídelů (skutečné otáčky motoru vidíte vedle volby zpomalení) – pedály, startér a řazení reagují hned. Tlačítkem „Vypnout motor“ motor zastavíte, „Nastartovat“ ho zase spustí.',
     ],
     camera: { position: [380, 330, 1290], target: [385, 105, 0] }, flow: true,
-    focus: null, housing: 'ghost', timeScale: 1 / 20,
+    focus: null, housing: 'ghost', slow: 1 / 20,
     labels: [{ id: 'crankshaft', a: 'b', dx: 0, dy: 60 }, { id: 'flywheel', a: 't', dx: 0, dy: -70 }, { id: 'inputShaft', a: 't', dx: 10, dy: -110 }, { id: 'counterShaft', a: 'b', dx: 0, dy: 60 }, { id: 'mainShaft', a: 't', dx: 40, dy: -70 }],
     diagram: 'chain',
     actions: [{ label: 'Rozjet v 1. stupni', run: a => { a.setInputs({ throttle: 0.3 }); a.requestGear('1'); } }],
-    setup(a) { a.reset(); a.setTimeScale(1 / 20); },
+    setup(a) { a.reset(); },
   },
   {
     id: 'klika',
@@ -83,29 +136,35 @@ export const chapters = [
       'Klikový hřídel je uložen v pěti hlavních ložiskách v bloku (blok je v řezu).',
     ],
     camera: { position: [-330, 230, 620], target: [130, 95, 0] },
-    focus: ['crank', 'piston', 'rod'], housing: 'cut', timeScale: 1 / 20,
+    focus: ['crank', 'piston', 'rod'], housing: 'cut', slow: 1 / 20,
     labels: [{ id: 'piston1', a: 't', dx: -50, dy: -40 }, { id: 'rod1', dx: -60, dy: 10 }, { id: 'crankshaft', a: 'b', dx: 0, dy: 50 }],
     diagram: 'piston',
-    setup(a) { a.reset(); a.setTimeScale(1 / 20); },
+    setup(a) { a.reset(); },
   },
   {
     id: 'ctyri-doby',
     title: 'Čtyři doby',
     html: P(
-      'Jeden pracovní cyklus válce trvá <b>720° (dvě otáčky klikového hřídele)</b> a tvoří ho čtyři zdvihy po 180°. Práci koná jen jeden z nich.',
-      '<b>1. Sání:</b> sací ventily jsou otevřené, píst jde dolů a nasává čerstvou náplň. <b>2. Komprese:</b> ventily jsou zavřené, píst stlačuje náplň z 549,6 cm³ na 50,05 cm³ – <b>kompresní poměr 11 : 1</b>; roste tlak i teplota. <b>3. Expanze (pracovní zdvih):</b> svíčka zapálí směs <b>před horní úvratí</b> (předstih; v modelu 10° při volnoběhu až 30° při plném zatížení), protože směs hoří desítky stupňů; maximum tlaku nastane krátce po HÚ (typicky 10–16°) a tlak tlačí píst dolů. <b>4. Výfuk:</b> výfukový ventil se otevírá ještě před dolní úvratí (DÚ) a píst vytlačuje spaliny ven.',
+      'Jeden pracovní cyklus válce trvá <b>720° (dvě otáčky klikového hřídele)</b> a tvoří ho čtyři zdvihy po 180°. Práci koná jen jeden z nich. Pohled je <b>příčný řez válcem 1</b>: vpravo je <b>sací strana</b> (sací potrubí), vlevo <b>výfuková</b>; vidíte svíčku, jeden sací a jeden výfukový ventil s kanály, píst, ojnici a čep kliky.',
+      '<b>1. Sání:</b> sací ventil je otevřený, píst jde dolů a <b>modré částice čerstvé směsi</b> proudí sacím kanálem kolem otevřeného ventilu do válce; s každým milimetrem zdvihu jich přibývá. <b>2. Komprese:</b> ventily jsou zavřené, píst stlačuje náplň z 549,6 cm³ na 50,05 cm³ (<b>kompresní poměr 11 : 1</b>) – mrak částic houstne a modrá přechází do fialové.',
+      '<b>3. Expanze:</b> svíčka zapálí směs <b>před horní úvratí</b> (předstih 10° při volnoběhu až 30° při plném zatížení): zablesk u svíčky a od ní se šíří <b>čelo plamene</b> (žluté) a za ním hoří oranžová náplň. Tlak tlačí píst dolů a částice tmavnou do rudé. <b>4. Výfuk:</b> výfukový ventil se otevírá ještě před dolní úvratí – nejdřív rychlý <b>výdech pod tlakem</b> (blow-down), pak píst vytlačuje <b>světle hnědé spaliny</b> výfukovým kanálem doleva. Kolem horní úvratě jsou chvíli otevřené oba ventily (<b>překrytí</b>).',
     ),
     notice: [
-      'Barvy plynu ve válcích: modrá = sání, modrofialová = komprese (tmavne s rostoucím tlakem), žlutá až oranžová = hoření, tmavá oranžová až hnědá = expanze, šedá = výfuk.',
-      'Zážeh nastává <b>před</b> HÚ, ne přesně v ní – u svíčky vidíte krátký žlutý záblesk, a to ještě při stoupání pístu.',
+      'Zkuste ručně posouvat jezdec „Úhel kliky“ (sání ≈ 360–540°, komprese 540–720°, expanze 0–180°, výfuk 180–360°) a sledujte, kdy se částice objevují, houstnou, hoří a odcházejí.',
+      'Zážeh nastává <b>před</b> HÚ (úhel ≈ 710°): jiskra u svíčky a první žlutá jádra plamene vznikají ještě při stoupání pístu.',
       'Plocha uvnitř smyčky v p–V diagramu je práce jednoho cyklu (zmenšená o malou čerpací smyčku sání a výfuku).',
-      'Plyn a tlak jsou idealizovaný model pro názornost; ventily a píst se pohybují přesně podle geometrie.',
+      'Částice jsou ilustrace: plyn a tlak jsou idealizovaný model, ventily a píst se pohybují přesně podle geometrie. Tlačítkem „Plyn“ je lze skrýt.',
     ],
+    legend: [['#58b4ff', 'čerstvá směs (sání)'], ['#9a7bff', 'stlačená směs (komprese)'], ['#ffe45e', 'čelo plamene / jiskra'], ['#ff7a1a', 'hořící a spálená náplň'], ['#7a2b12', 'expanze – chladnoucí plyn'], ['#cdb38b', 'spaliny (výfuk)']],
     camera: { position: [100, 250, 740], target: [45, 170, 0] },
-    focus: ['piston1', 'rod1', 'crank', 'valve', 'gas1', 'spark1', 'sparkPlug1', 'cam'], housing: 'cut', timeScale: 1 / 20,
-    labels: [{ id: 'valveIn1a', a: 't', dx: -70, dy: -30 }, { id: 'valveEx1a', a: 't', dx: 70, dy: -30 }, { id: 'sparkPlug1', a: 't', dx: 0, dy: -70 }, { id: 'piston1', dx: -80, dy: 20 }],
+    focus: ['piston1', 'rod1', 'crankshaft', 'valveIn1', 'valveEx1', 'springIn1', 'springEx1', 'gas1', 'spark1', 'sparkPlug1', 'cam'], housing: 'ghost', slow: 1 / 60,
+    views: [
+      VIEW_SECTION(),
+      { id: 'podelny', label: 'Podélný pohled', housing: 'cut', camera: { position: [100, 250, 740], target: [45, 170, 0] } },
+    ],
+    labels: [{ id: 'valveIn1a', a: 't', dx: 70, dy: -30 }, { id: 'valveEx1a', a: 't', dx: -70, dy: -30 }, { id: 'sparkPlug1', a: 't', dx: 0, dy: -70 }, { id: 'piston1', dx: -80, dy: 20 }, { id: 'intakeManifold', dx: 60, dy: -20 }, { id: 'exhaustManifold', dx: -60, dy: -20 }],
     diagram: 'pv',
-    setup(a) { a.reset(); a.setTimeScale(1 / 20); },
+    setup(a) { a.reset(); },
   },
   {
     id: 'rozvod',
@@ -115,6 +174,7 @@ export const chapters = [
       'Vačka tlačí přímo na <b>hrníčkové zdvihátko</b> s plochým dnem, proto ventil sleduje zdvih vačky: <b>8,56 mm</b> u sací, <b>8,31 mm</b> u výfukové vačky (ventil se zvedne o tu hodnotu zmenšenou o vůli). Zavírá ho pružina. Mezi základní kružnicí vačky a zdvihátkem je za studena <b>vůle ventilu 0,2 mm</b>, aby ventil dosedl i po tepelné roztažnosti.',
       'Časování: sací ventil se otevírá <b>10° před HÚ</b> a zavírá <b>58° za DÚ</b>; výfukový se otevírá <b>58° před DÚ</b> a zavírá <b>10° za HÚ</b> (oba jsou otevřeny 248°). Kolem HÚ mezi výfukem a sáním jsou chvíli otevřené oba – <b>překrytí (střih) ventilů 20°</b>.',
       'Když se rozvodový řemen přetrhne, vačky se zastaví a klikový hřídel se ještě chvíli točí. U <b>interferenčních motorů</b> pak píst narazí do otevřeného ventilu a ohne ho.',
+      'Tlačítkem „Příčný řez válcem 1“ uvidíte ventily i s kanály v hlavě zepředu; „Podélný pohled“ je celá hlava s řemenem.',
     ),
     notice: [
       'Řemenice vačky má dvojnásobek zubů řemenice kliky (36 : 18) – proto poloviční otáčky.',
@@ -123,10 +183,14 @@ export const chapters = [
       'Laloky vaček jsou na hřídeli natočené podle pořadí zapalování; vačky se otáčejí stejným směrem jako klikový hřídel (jeden zubatý řemen obepíná všechny řemenice).',
     ],
     camera: { position: [150, 420, 640], target: [140, 270, 0] },
-    focus: ['cam', 'valve', 'crank', 'belt', 'head', 'sparkPlug'], housing: 'ghost', timeScale: 1 / 20,
+    focus: ['cam', 'valve', 'crank', 'belt', 'head', 'sparkPlug'], housing: 'ghost', slow: 1 / 60,
+    views: [
+      { id: 'podelny', label: 'Podélný pohled', camera: { position: [150, 420, 640], target: [140, 270, 0] } },
+      VIEW_SECTION({ housing: 'ghost', fit: 330, camera: { position: [-540, 250, -40], target: [0, 250, 0] } }),
+    ],
     labels: [{ id: 'camIn', a: 't', dx: 0, dy: -50 }, { id: 'camEx', a: 'b', dx: 90, dy: -30 }, { id: 'crankSprocket', a: 'b', dx: 30, dy: 40 }, { id: 'belt', dx: -30, dy: 0 }],
     diagram: 'timing1',
-    setup(a) { a.reset(); a.setTimeScale(1 / 20); },
+    setup(a) { a.reset(); },
   },
   {
     id: 'poradi',
@@ -143,35 +207,49 @@ export const chapters = [
       'Válec 1 je vpředu, u rozvodového řemenu; válec 4 je u setrvačníku.',
     ],
     camera: { position: [150, 200, 760], target: [150, 120, 0] },
-    focus: ['crank', 'piston', 'rod', 'gas', 'spark'], housing: 'cut', timeScale: 1 / 20,
+    focus: ['crank', 'piston', 'rod', 'gas', 'spark'], housing: 'cut', slow: 1 / 60,
     labels: [{ id: 'piston1', a: 'b', dx: 0, dy: 45 }, { id: 'piston2', a: 'b', dx: 0, dy: 45 }, { id: 'piston3', a: 'b', dx: 0, dy: 45 }, { id: 'piston4', a: 'b', dx: 0, dy: 45 }],
     diagram: 'timing4',
-    setup(a) { a.reset(); a.setTimeScale(1 / 20); },
+    setup(a) { a.reset(); },
   },
   {
     id: 'spojka',
     title: 'Setrvačník a spojka',
     html: P(
-      '<b>Setrvačník</b> je přišroubovaný na zadní přírubu klikového hřídele a má na obvodu ozubený věnec pro startér (132 zubů). K setrvačníku je šesti šrouby připevněno <b>víko spojky</b> s <b>přítlačným kotoučem</b> a <b>talířovou pružinou</b> – to vše se otáčí s motorem.',
-      'Mezi setrvačníkem a přítlačným kotoučem je <b>lamela</b>, drážkovaná na vstupním hřídeli převodovky (21 drážek). Pružina ji přitlačuje třením k setrvačníku. Lamela má torzní pružiny (6 ks), které tlumí rázy (v simulaci jen nakresleny).',
-      '<b>Sešlápnutím pedálu</b> vidlice posune vypínací ložisko o 9,8 mm (včetně 1,5 mm vůle) směrem k motoru. Ložisko tlačí na konce jazýčků talířové pružiny, ta se překlápí kolem opěrného kroužku a její vnější okraj se pohne <b>opačně</b> – přítlačný kotouč se odtáhne od lamely jen o <b>1,8 mm</b> (páka ≈ 4,6 : 1).',
+      '<b>Setrvačník</b> je přišroubovaný na zadní přírubu klikového hřídele a má na obvodu ozubený věnec pro startér (132 zubů). K setrvačníku je šesti šrouby připevněno <b>víko spojky</b> s <b>přítlačným kotoučem</b> a <b>talířovou pružinou</b> – to vše se otáčí s motorem (<b style="color:#ff9a2a">oranžově</b>).',
+      'Mezi setrvačníkem a přítlačným kotoučem je <b>lamela</b>, drážkovaná na vstupním hřídeli převodovky (21 drážek) – patří převodovce (<b style="color:#4fa8ff">modře</b>). Pružina ji přitlačuje třením k setrvačníku. Lamela má torzní pružiny (6 ks), které tlumí rázy (v simulaci jen nakresleny).',
+      '<b>Sešlápnutím pedálu</b> vidlice posune vypínací ložisko o 9,8 mm (včetně 1,5 mm vůle) směrem k motoru. Ložisko tlačí na konce jazýčků talířové pružiny, ta se překlápí kolem opěrného kroužku a její vnější okraj se pohne <b>opačně</b> – přítlačný kotouč se odtáhne od lamely jen o <b>1,8 mm</b> (páka ≈ 4,6 : 1). Lamela se tím uvolní: z každé strany vznikne mezera 0,9 mm.',
       'Spojka přenáší moment třením. Během prvních 0,8 mm zdvihu kotouče se povolují pružinky lamely a kapacita klesá ze 100 % na nulu – spojka <b>prokluzuje</b>; právě tak se plynule rozjíždíme.',
+      'Pohled <b>„Detail třecích ploch“</b> je řez nad horním okrajem třecího kruhu: při pustěném pedálu jsou plochy stisknuté (0,05 mm), při sešlápnutém se otevřou obě mezery a vidíte, jak se jazýček překlápí na opěrném kroužku.',
     ),
     notice: [
+      'Zkuste „Sešlápnout a sledovat lamelu“: v neutrálu se po rozpojení lamela a vstupní hřídel zpomalí a <b>zastaví</b> (sledujte tlumicí pružiny a náboj lamely), zatímco setrvačník a víko běží dál.',
       'Ložisko se pohybuje k motoru, ale okraj pružiny a přítlačný kotouč se pohybují od motoru.',
       'Prvních asi 15 % dráhy pedálu je jen volnost (1,5 mm u ložiska) – spojka ještě drží celým momentem.',
-      'Při plně sešlápnutém pedálu se lamela zastaví s hřídelí převodovky, zatímco setrvačník a víko běží dál.',
+      'Skříň (víko spojky, zvon) je průhledná; přepnutím na „Řez“ ukážete průřez a můžete se přiblížit tlačítkem „Detail třecích ploch“.',
       'Talířová pružina je v modelu nakreslena jako 18 tuhých jazýčků (zjednodušení).',
     ],
-    camera: { position: [730, 230, 560], target: [420, 20, 0] }, flow: true,
-    focus: ['crank', 'pressurePlate', 'finger', 'clutchDisc', 'release', 'inputShaft', 'bellhousing'], housing: 'cut', timeScale: 1 / 20,
+    caps: true,
+    legend: [['#f08a1c', 'strana motoru: setrvačník (oranžový), přítlačný kotouč (tmavě oranžový), víko (světlé), jazýčky pružiny (žluté)'], ['#4fa8ff', 'strana převodovky: lamela, vstupní hřídel'], ['#e6ebf0', 'vypínací mechanismus: ložisko, vidlice']],
+    camera: { position: [730, 230, 560], target: [420, 20, 0] },
+    tint: [['clutchCover', '#ffc56e'], ['crank', '#f08a1c'], ['pressurePlate', '#c9560c'], ['finger', '#ffe08a'], ['clutchDisc', '#4fa8ff'], ['inputShaft', '#4fa8ff'], ['releaseBearing', '#e6ebf0'], ['releaseFork', '#e6ebf0']],
+    focus: ['crank', 'pressurePlate', 'finger', 'clutchDisc', 'release', 'inputShaft', 'bellhousing'], housing: 'cut', slow: 1 / 20,
+    views: [
+      { id: 'celek', label: 'Celek', camera: { position: [730, 230, 560], target: [420, 20, 0] } },
+      // exactly edge-on to the friction faces, centred on the disc and far away (fov 3°), so both 0.9 mm gaps open as see-through slits
+      { id: 'detail', label: 'Detail třecích ploch', housing: 'cut', fit: 60, camera: { position: [394, 100, 1400], target: [394, 100, 0], fov: 3 } },
+    ],
     labels: [{ id: 'flywheel', a: 'c', dx: -130, dy: -70 }, { id: 'clutchDisc', a: 'b', dx: -70, dy: 70 }, { id: 'releaseBearing', a: 'b', dx: 70, dy: 90 }],
-    diagram: 'clutchCurve',
+    diagram: 'clutchLive',
     actions: [
+      { label: 'Sešlápnout a sledovat lamelu', run: a => {
+        a.setAssist(true); a.requestGear('N'); a.setInputs({ throttle: 0, clutchPedal: 1, ignition: true });
+        a.setHousing('ghost'); a.flyTo({ position: [900, 160, 330], target: [420, 0, 0] }, 1.2);
+      } },
       { label: 'Sešlápnout spojku', run: a => a.setInputs({ clutchPedal: 1 }) },
       { label: 'Pustit spojku', run: a => a.setInputs({ clutchPedal: 0 }) },
     ],
-    setup(a) { a.reset(); a.setTimeScale(1 / 20); },
+    setup(a) { a.reset(); },
   },
   {
     id: 'prevodovka',
@@ -188,10 +266,10 @@ export const chapters = [
       'Skříň převodovky je průhledná; přepnutím na „Řez“ nebo „Plné“ ji zobrazíte.',
     ],
     camera: { position: [700, 150, 860], target: [695, -30, 0] }, flow: true,
-    focus: null, housing: 'ghost', timeScale: 1 / 20,
+    focus: null, housing: 'ghost', slow: 1 / 20,
     labels: [{ id: 'inputShaft', a: 't', dx: -20, dy: -80 }, { id: 'mainShaft', a: 't', dx: 40, dy: -60 }, { id: 'counterShaft', a: 'b', dx: 0, dy: 70 }, { id: 'sleeve12', a: 't', dx: 0, dy: -90 }],
     diagram: 'shafts',
-    setup(a) { a.reset(); a.setTimeScale(1 / 20); },
+    setup(a) { a.reset(); },
   },
   {
     id: 'tok-vykonu',
@@ -208,7 +286,7 @@ export const chapters = [
       'Rychlost vozu je dopočtena s rozvodovkou 4,1 a poloměrem kola 0,30 m (rozvodovka není modelována).',
     ],
     camera: { position: [630, 170, 880], target: [630, -20, 0] }, flow: true,
-    focus: null, housing: 'ghost', timeScale: 1 / 20,
+    focus: null, housing: 'ghost', slow: 1 / 20,
     labels: [{ id: 'inputShaft', a: 't', dx: -30, dy: -90 }, { id: 'mainShaft', a: 't', dx: 60, dy: -70 }, { id: 'counterShaft', a: 'b', dx: 0, dy: 70 }],
     diagram: 'ratios',
     actions: ['1', '2', '3', '4', '5'].map(g => ({ label: g + '. stupeň', run: a => a.requestGear(g) })),
@@ -218,7 +296,7 @@ export const chapters = [
       a.requestGear('1'); a.until(settled('1'), 12, { throttle: 0.4 });
       a.requestGear('2'); a.until(settled('2'), 12, { throttle: 0.5 });
       a.requestGear('3'); a.until(settled('3'), 12, { throttle: 0.5 });
-      a.setInputs({ throttle: 0.35 }); a.setTimeScale(1 / 20);
+      a.setInputs({ throttle: 0.35 });
     },
   },
   {
@@ -233,10 +311,10 @@ export const chapters = [
       'Diagram ukazuje polohu objímky: kroužek se dotkne kužele, blokovací poloha (objímka stojí), špičky zubů kola, plné zařazení (9,5 mm).',
       'Blokovací kroužek se v blokování pootočí o čtvrtinu rozteče zubů (2,5° z rozteče 10°).',
       'Dokud se otáčky liší, objímka dál nepostoupí – nemá smysl tlačit silou.',
-      'Tlačítkem „Přehrát znovu“ se zopakuje řazení 1 → 2 ve zpomaleném záběru; zkuste vypnout Asistenta spojky a řadit bez pedálu.',
+      'V této kapitole je zapnuto <b>„celý čas“</b>: zpomaleno je úplně všechno včetně pedálů a páky (na scéně svítí štítek se zpomalením). Tlačítkem „Přehrát znovu“ se zopakuje řazení 1 → 2; zkuste vypnout Asistenta spojky a řadit bez pedálu.',
     ],
     camera: { position: [650, 110, 330], target: [635, 10, 0] }, flow: true,
-    focus: ['mainShaft', 'gear1', 'gear2', 'sleeve12', 'ring1', 'ring2', 'fork12', 'inputShaft', 'counterShaft'], housing: 'cut', timeScale: 1 / 20,
+    focus: ['mainShaft', 'gear1', 'gear2', 'sleeve12', 'ring1', 'ring2', 'fork12', 'inputShaft', 'counterShaft'], housing: 'cut', slow: 1 / 20, slowMode: 'time',
     labels: [{ id: 'sleeve12', a: 'b', dx: 0, dy: 80 }, { id: 'gear2', a: 't', dx: -60, dy: -70 }, { id: 'gear1', a: 't', dx: 60, dy: -70 }, { id: 'fork12', a: 't', dx: 0, dy: -100 }],
     diagram: 'sync',
     actions: [
@@ -247,7 +325,7 @@ export const chapters = [
       a.reset(); a.setAssist(true);
       a.requestGear('1');
       a.until(() => a.state.gear === '1' && !a.driver.busy && a.state.rpm.engine > 3500, 20, { throttle: 0.4 });
-      a.setInputs({ throttle: 0.2 }); a.setTimeScale(1 / 20); a.requestGear('2');
+      a.setInputs({ throttle: 0.2 }); a.requestGear('2');
     },
   },
   {
@@ -263,9 +341,10 @@ export const chapters = [
       'Výstupní hřídel se otáčí opačně – vedle otáček je záporné znaménko.',
       'Zkuste „Zpátečka za jízdy“: simulace nepustí mezikolo do záběru, dokud se vůz pohybuje.',
       'Na stojícím voze řidič nejdřív drží spojku sešlápnutou, dokud se vstupní hřídel nezastaví.',
+      'V této kapitole je zapnuto <b>„celý čas“</b>: zpomalený je i řidič, pedály a řadicí páka (na scéně svítí štítek se zpomalením).',
     ],
     camera: { position: [880, 40, 330], target: [700, -45, 20] }, flow: true,
-    focus: ['idlerR', 'counterShaft', 'mainShaft', 'fork5', 'sleeve5', 'inputShaft'], housing: 'cut', timeScale: 1 / 20,
+    focus: ['idlerR', 'counterShaft', 'mainShaft', 'fork5', 'sleeve5', 'inputShaft'], housing: 'cut', slow: 1 / 20, slowMode: 'time',
     labels: [{ id: 'idlerR', a: 'b', dx: -60, dy: 90 }, { id: 'fork5', a: 't', dx: -80, dy: -50 }],
     diagram: 'reverse',
     actions: [
@@ -278,7 +357,6 @@ export const chapters = [
     setup(a) {
       a.reset(); a.setAssist(true); a.requestGear('R');
       a.until(() => a.driver.stage === 'shift' || a.driver.stage === 'idle', 15);   // skip the wait for the input shaft to stop
-      a.setTimeScale(1 / 20);
     },
   },
   {
@@ -286,20 +364,20 @@ export const chapters = [
     title: 'Jízda',
     html: P(
       'Vše je v provozu a můžete ovládat všechno: plyn (<span class="k">W</span> / <span class="k">↑</span>), spojku (<span class="k">mezerník</span>), brzdu (<span class="k">S</span> / <span class="k">↓</span>) a řadicí páku (klávesy <span class="k">1</span>–<span class="k">5</span>, <span class="k">R</span>, <span class="k">N</span>/<span class="k">0</span> nebo kliknutím do schématu H).',
-      '<b>Rozjezd:</b> zvolte 1. stupeň, přidejte plyn (kolem 0,3–0,4) – asistent pustí spojku postupně. <b>Řazení:</b> při otáčkách nad cca 4000 ot/min zvolte vyšší stupeň a sledujte fáze synchronizéru ve spodním panelu. <b>Chyba řazení:</b> vypněte Asistenta spojky a řaďte bez pedálu – synchron zablokuje a ozve se skřípění. <b>Zhasnutí:</b> zabrzděte ve stupni se sepnutou spojkou a motor zhasne.',
-      'Rychlost přehrávání je 1× (skutečný čas). Zkuste ji snížit na ¼ nebo 1/20 a sledujte řazení zpomaleně.',
+      '<b>Rozjezd:</b> zvolte 1. stupeň, přidejte plyn (kolem 0,3–0,4) – asistent pustí spojku postupně. <b>Řazení:</b> při otáčkách nad cca 4000 ot/min zvolte vyšší stupeň a sledujte fáze synchronizéru ve spodním panelu. <b>Chyba řazení:</b> vypněte Asistenta spojky a řaďte bez pedálu – synchron zablokuje a ozve se skřípění. <b>Zhasnutí:</b> vypněte Asistenta spojky, zabrzděte ve stupni se sepnutou spojkou a motor zhasne (s Asistentem řidič při zastavení spojku sám sešlápne).',
+      'Zpomaleno je jen otáčení hřídelů (1/20) – pedály, startér a řazení reagují hned. Chcete-li zpomalit i ovládání, přepněte „jen otáčení“ na „celý čas“.',
     ),
     notice: [
       'Záporné otáčky předlohového hřídele jsou správně – točí se opačným směrem než motor.',
       'Při pomalém rozjezdu v 1. stupni sledujte stav spojky: sepnutá → prokluzuje → sepnutá.',
       'Zpátečku zařaďte až po zastavení vozu.',
-      'Po zhasnutí motoru tlačítkem „Nastartovat“ spustíte startér (nejdřív zařaďte neutrál nebo sešlápněte spojku).',
+      'Tlačítkem „Vypnout motor“ motor dobíhá a zastaví se, „Nastartovat“ spustí startér. S Asistentem startuje řidič i ve stupni; bez něj nejdřív sešlápněte spojku nebo vyřaďte.',
     ],
     camera: { position: [380, 330, 1290], target: [385, 105, 0] }, flow: true,
-    focus: null, housing: 'ghost', timeScale: 1,
+    focus: null, housing: 'ghost', slow: 1 / 20,
     labels: [],
     diagram: null,
-    setup(a) { a.reset(); a.setAssist(true); a.setTimeScale(1); },
+    setup(a) { a.reset(); a.setAssist(true); },
   },
 ];
 
@@ -323,7 +401,9 @@ export const glossary = [
   { title: 'Výfuková vačková hřídel', match: ['camEx'], text: 'Stejná jako sací, ale s lalokem natočeným pro výfukové ventily. Otáčí se poloviční rychlostí než klikový hřídel.' },
   { title: 'Řemenice vačky', match: ['camSprocket'], text: 'Zubatá řemenice s 36 zuby, dvojnásobkem zubů kliky. Proto vačka vykoná jednu otáčku za dvě otáčky klikového hřídele.' },
   { title: 'Rozvodový řemen', match: ['belt'], text: 'Ozubený řemen synchronizuje klikový hřídel a vačky. Přetržení řemenu u interferenčního motoru znamená ohnuté ventily.' },
-  { title: 'Plyn ve válci', match: ['gas'], text: 'Vizualizace náplně válce: modrá = sání, modrofialová = komprese, žlutá až oranžová = hoření, hnědá = expanze, šedá = výfuk. Je to idealizovaný model.' },
+  { title: 'Plyn ve válci', match: ['gas'], text: 'Částice znázorňují náplň válce: modré = čerstvá směs při sání, fialové = stlačená směs, žluté čelo plamene a oranžová spálená náplň při hoření, rudé = chladnoucí plyn při expanzi, světle hnědé = spaliny při výfuku. Je to idealizovaný model.' },
+  { title: 'Sací potrubí', match: ['intakeManifold'], text: 'Krátké sací kanály na sací straně hlavy; vedou čerstvou směs k sacím ventilům.' },
+  { title: 'Výfukové potrubí', match: ['exhaustManifold'], text: 'Krátké výfukové kanály na výfukové straně hlavy; odvádějí spaliny od výfukových ventilů.' },
   { title: 'Jiskra', match: ['spark'], text: 'Krátký záblesk svíčky v okamžiku zážehu, několik desítek stupňů před HÚ (v modelu 10–30° podle zatížení).' },
   { title: 'Víko spojky', match: ['clutchCover', 'cover'], text: 'Plechový kryt přišroubovaný k setrvačníku šesti šrouby. Nese talířovou pružinu a přítlačný kotouč; otáčí se s motorem.' },
   { title: 'Přítlačný kotouč', match: ['pressurePlate'], text: 'Litinový prstenec, který pružina tlačí na lamelu. Při sešlápnutí pedálu se odtahuje od lamely o 1,8 mm.' },

@@ -30,6 +30,36 @@ const url = `http://127.0.0.1:${server.address().port}/`;
 const report = { url, viewport: [VW, VH], chapters: [], checks: [], console: [], pageErrors: [], frame: {}, ok: true };
 const check = (name, ok, detail = '') => { report.checks.push({ name, ok: !!ok, detail }); if (!ok) { report.ok = false; console.error(`FAIL ${name} ${detail}`); } else console.log(`ok   ${name} ${detail}`); };
 
+
+// ---------------------------------------------------------------- language parity (Node, no browser)
+{
+  const { pathToFileURL } = await import('node:url');
+  const load = p => import(pathToFileURL(path.join(root, p)).href);
+  const [cs, en] = await Promise.all([load('src/app/content/cs.js'), load('src/app/content/en.js')]);
+  const keyset = (o, pre = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? keyset(v, pre + k + '.') : [pre + k])).sort();
+  const a = keyset(cs.ui), b = keyset(en.ui);
+  check('i18n: en.ui has exactly the key set of cs.ui', a.join() === b.join(), `missing in en: ${a.filter(k => !b.includes(k))} / extra in en: ${b.filter(k => !a.includes(k))}`);
+  const bad = [];
+  for (const c of cs.chapters) {
+    const t = en.chapterText[c.id];
+    if (!t) { bad.push(`${c.id}: no chapterText`); continue; }
+    if (!t.title || !t.html) bad.push(`${c.id}: title/html`);
+    if ((c.notice?.length ?? 0) !== (t.notice?.length ?? 0)) bad.push(`${c.id}: notice ${c.notice?.length} vs ${t.notice?.length}`);
+    if ((c.legend?.length ?? 0) !== (t.legend?.length ?? 0)) bad.push(`${c.id}: legend`);
+    if ((c.actions?.length ?? 0) !== (t.actions?.length ?? 0)) bad.push(`${c.id}: actions`);
+    const vs = (c.views ?? []).map(v => v.id).sort().join(), tv = Object.keys(t.views ?? {}).sort().join();
+    if (vs !== tv) bad.push(`${c.id}: views ${vs} vs ${tv}`);
+  }
+  check('i18n: every chapter has chapterText with matching notice/legend/action/view counts', bad.length === 0 && Object.keys(en.chapterText).length === cs.chapters.length, bad.join('; '));
+  check('i18n: glossary and simplifications lengths match', cs.glossary.length === en.glossary.length && cs.simplifications.length === en.simplifications.length
+    && cs.glossary.every((g, i) => g.match.join() === en.glossary[i].match.join()), `${cs.glossary.length}/${en.glossary.length}, ${cs.simplifications.length}/${en.simplifications.length}`);
+  const { buildAssembly } = await load('src/model/assembly.js');
+  const labs = new Set();
+  buildAssembly().root.traverse(o => { if (o.userData?.part?.label) labs.add(o.userData.part.label); });
+  const unmapped = [...labs].filter(l => !(l in en.partLabels));
+  check('i18n: every 3D part label has an English name', unmapped.length === 0, `${labs.size} labels; unmapped: ${unmapped.join(', ')}`);
+}
+
 const browser = await chromium.launch({ channel: 'chrome', headless: true, args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'] });
 const page = await browser.newPage({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1 });
 page.on('console', m => {
@@ -130,18 +160,24 @@ try {
   const kb = await st();
   check('key 1 engages 1st', kb.gear === '1', JSON.stringify(kb));
 
-  // stall: brake to a stop in gear with the clutch engaged, then restart from neutral
-  await page.evaluate(() => { document.getElementById('toasts').replaceChildren(); const a = window.__app; a.setChapter('jizda'); a.requestGear('1'); a.fastForward(5, { throttle: 0.4 }); a.setInputs({ throttle: 0, brake: 1 }); a.setPaused(false); a.setTimeScale(1); });
+  // stall (assistant OFF): brake to a stop in gear with the clutch engaged -> the raw simulator stalls; restart from the button
+  await page.evaluate(() => {
+    document.getElementById('toasts').replaceChildren(); const a = window.__app; a.setChapter('jizda'); a.app.setAssist(false);
+    a.setInputs({ throttle: 0, clutchPedal: 1, lever: '1' }); a.fastForward(3, {});
+    a.setInputs({ throttle: 0.5, clutchPedal: 0 }); a.fastForward(5, {});
+    a.setInputs({ throttle: 0, brake: 1 }); a.setPaused(false); a.setSlowMode('rot'); a.setSlow(1);
+  });
   await page.waitForFunction(() => /zhasl/.test(document.getElementById('toasts').innerText), null, { timeout: 9000 }).catch(() => {});
   await page.waitForTimeout(600);
-  const stalled = await page.evaluate(() => ({ stalled: !window.__app.sim.state.engine.running && !window.__app.app.user.ignition, banner: document.getElementById('stall').style.display, toast: document.getElementById('toasts').innerText || 'zhasl', dbg: JSON.stringify({ r: window.__app.sim.state.engine, ign: window.__app.app.user.ignition, g: window.__app.sim.state.gear, rpm: window.__app.sim.state.rpm.engine, t: window.__app.sim.state.t, ts: window.__app.app.timeScale, paused: window.__app.app.paused }) }));
-  check('braking in gear stalls the engine (banner + toast)', stalled.stalled && stalled.banner === 'block' && /zhasl/.test(stalled.toast), JSON.stringify(stalled));
+  const stalled = await page.evaluate(() => ({ stalled: !window.__app.sim.state.engine.running && !window.__app.app.user.ignition, banner: document.getElementById('stall').style.display, toast: document.getElementById('toasts').innerText || 'zhasl', dbg: JSON.stringify({ r: window.__app.sim.state.engine, ign: window.__app.app.user.ignition, g: window.__app.sim.state.gear, rpm: window.__app.sim.state.rpm.engine, t: window.__app.sim.state.t }) }));
+  check('manual: braking in gear stalls the engine (banner + toast)', stalled.stalled && stalled.banner === 'block' && /zhasl/.test(stalled.toast), JSON.stringify(stalled));
   await page.screenshot({ path: path.join(outDir, `23-stall${tag}.png`) });
-  await page.evaluate(() => { const a = window.__app; a.setInputs({ brake: 0 }); a.requestGear('N'); });
-  await page.waitForTimeout(3500);
+  await page.evaluate(() => { const a = window.__app; a.setInputs({ brake: 0, clutchPedal: 1, lever: 'N' }); a.app.setAssist(true); });
+  await page.waitForTimeout(1500);
   await page.click('#dock .btn.start'); await page.waitForTimeout(2500);
   const rs = await page.evaluate(() => window.__app.sim.state.engine);
   check('engine restarts from the start button', rs.running && !rs.stalled, JSON.stringify(rs));
+  await page.evaluate(() => window.__app.setInputs({ clutchPedal: 0 }));
 
   // assistant toggle round trip must not move the lever
   const rt = await page.evaluate(() => {
@@ -172,6 +208,212 @@ try {
   await page.screenshot({ path: path.join(outDir, `22-part-card${tag}.png`) });
   await page.evaluate(() => window.__app.app.selectPart(null));
 
+  // ---------------------------------------------------------------- wall-clock interaction (REAL clicks / keys, no fastForward)
+  const S = () => page.evaluate(() => { const a = window.__app, s = a.sim.state; return { gear: s.gear, kmh: s.speedKmh, rpm: s.rpm.engine, run: s.engine.running, stall: !!a.app.stallFlag, t: s.t, as: s.angleScale }; });
+  const until = async (pred, ms) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = await S(); if (pred(v)) return { ok: true, ms: Date.now() - t0, v }; await page.waitForTimeout(80); } return { ok: false, ms, v: await S() }; };
+  const fmtR = r => `${r.ok ? 'in' : 'NOT within'} ${(r.ms / 1000).toFixed(1)} s ${JSON.stringify({ g: r.v.gear, kmh: +r.v.kmh.toFixed(1), rpm: Math.round(r.v.rpm), run: r.v.run, stall: r.v.stall })}`;
+  async function wallClock(chapter) {
+    const T = `[${chapter}] `;
+    await page.evaluate(id => { window.__app.setChapter(id); }, chapter);
+    await page.waitForTimeout(1500);
+    const sl = await page.evaluate(() => ({ mode: window.__app.app.slowMode, rot: window.__app.app.rotScale, time: window.__app.app.timeScale, angle: window.__app.sim.angleScale }));
+    check(T + 'default time model is "jen otáčení" (angleScale = rotScale, clock real)', sl.mode === 'rot' && sl.time === 1 && Math.abs(sl.angle - sl.rot) < 1e-9, JSON.stringify(sl));
+    // 1. stop
+    await page.click('#dock .btn.start');
+    let r = await until(v => v.rpm < 1 && !v.run, 2500);
+    check(T + '1 "Vypnout motor" -> rpm 0 within 2.5 s', r.ok, fmtR(r));
+    const stat = await page.evaluate(() => document.querySelector('#dock .readouts .rd .v').textContent);
+    check(T + '1b status line says "Motor stojí"', /stojí/.test(stat), stat);
+    // 2. start
+    await page.click('#dock .btn.start');
+    r = await until(v => v.run, 2500);
+    check(T + '2 "Nastartovat" -> running within 2.5 s', r.ok, fmtR(r));
+    await page.waitForTimeout(1200);
+    // 3. key 1 with zero throttle
+    await page.keyboard.press('1');
+    r = await until(v => v.gear === '1' && v.kmh > 3, 7000);
+    const r3 = await S();
+    check(T + '3 key 1, zero throttle: gear 1, speed > 3 km/h within 7 s, no stall', r.ok && !r3.stall && r3.run, fmtR(r));
+    // 4. throttle + 2nd gear
+    const v0 = await S();
+    await page.keyboard.down('w'); await page.waitForTimeout(3000);
+    const v1 = await S(); await page.keyboard.up('w');
+    check(T + '4a holding W 3 s raises the speed', v1.kmh > v0.kmh + 3, `${v0.kmh.toFixed(1)} -> ${v1.kmh.toFixed(1)} km/h`);
+    await page.keyboard.press('2');
+    r = await until(v => v.gear === '2', 3000);
+    check(T + '4b key 2 -> gear 2 within 3 s', r.ok, fmtR(r));
+    await page.waitForTimeout(1500);
+    // 5. hold S until standstill
+    await page.keyboard.down('s');
+    r = await until(v => v.kmh < 0.3, 10000);
+    await page.waitForTimeout(1500);
+    const r5 = await S(); await page.keyboard.up('s');
+    check(T + '5 holding S: standstill within 10 s, engine still running, no stall', r.ok && r5.run && !r5.stall, fmtR(r) + ' / after ' + JSON.stringify({ run: r5.run, rpm: Math.round(r5.rpm), stall: r5.stall }));
+    await page.waitForTimeout(800);
+    // 6. reverse
+    await page.keyboard.press('r');
+    r = await until(v => v.gear === 'R', 6000);
+    check(T + '6a key R -> gear R within 6 s', r.ok, fmtR(r));
+    r = await until(v => v.kmh < -0.5, 5000);
+    check(T + '6b speed becomes negative within 5 s', r.ok, fmtR(r));
+    await page.keyboard.press('n'); await page.waitForTimeout(600);
+  }
+  await wallClock('prehled');
+  await wallClock('jizda');
+
+  // ---------------------------------------------------------------- wall-clock pedal pumping + restart matrix (real keys / clicks)
+  const fresh = async (assist = true) => {
+    await page.evaluate(a2 => { const a = window.__app; a.setChapter('prehled'); a.setSlowMode('rot'); a.setSlow(1); a.setPaused(false); a.app.reset(); a.app.setAssist(a2); document.getElementById('toasts').replaceChildren(); }, assist);
+    await page.waitForTimeout(1800);
+  };
+  const sampleClutch = ms => page.evaluate(ms2 => new Promise(resolve => {
+    const a = window.__app, tr = [], t0 = performance.now(); let stalled = false;
+    const tick = () => { tr.push(a.sim.state.clutchPedal); if (!a.sim.state.engine.running) stalled = true; if (performance.now() - t0 < ms2) requestAnimationFrame(tick); else resolve({ tr, stalled }); };
+    requestAnimationFrame(tick);
+  }), ms);
+  const reversals = tr => { let rev = 0, dir = 0, last = tr[0]; for (const v of tr) { const d = v - last; if (Math.abs(d) < 1e-4) continue; const sg = Math.sign(d); if (dir && sg !== dir) rev++; dir = sg; last = v; } return rev; };
+  report.wallClock = {};
+  await fresh();
+  await page.keyboard.press('3');
+  let pump = await sampleClutch(8000);
+  let rv = reversals(pump.tr), fin = await S();
+  report.wallClock.a = { reversals: rv, stalled: pump.stalled, final: fin };
+  check('wall-clock a: key 3 at standstill, no throttle: clutch reversals <= 10, no stall', rv <= 10 && !pump.stalled && fin.run, `${rv} reversals, ${pump.tr.length} frames, ${JSON.stringify({ g: fin.gear, kmh: +fin.kmh.toFixed(1), rpm: Math.round(fin.rpm), run: fin.run })}`);
+  await fresh();
+  await page.keyboard.press('1'); await page.waitForTimeout(5000);
+  await page.keyboard.press('4');
+  pump = await sampleClutch(8000);
+  rv = reversals(pump.tr); fin = await S();
+  report.wallClock.b = { reversals: rv, stalled: pump.stalled, final: fin };
+  check('wall-clock b: key 1, 5 s, key 4, no throttle: clutch reversals <= 10, no stall', rv <= 10 && !pump.stalled && fin.run, `${rv} reversals, ${pump.tr.length} frames, ${JSON.stringify({ g: fin.gear, kmh: +fin.kmh.toFixed(1), rpm: Math.round(fin.rpm), run: fin.run })}`);
+  report.wallClock.c = [];
+  for (const g of ['1', '3', '5', 'R']) {
+    await fresh();
+    await page.keyboard.press(g.toLowerCase());
+    let r = await until(v => v.gear === g, 8000);
+    if (g === 'R') await page.waitForTimeout(2000);
+    else { await page.keyboard.down('w'); await page.waitForTimeout(2000); await page.keyboard.up('w'); }
+    const before = await S();
+    await page.click('#dock .btn.start'); await page.waitForTimeout(2000);
+    const off = await S();
+    await page.evaluate(() => document.getElementById('toasts').replaceChildren());
+    await page.click('#dock .btn.start');
+    const up = await until(v => v.run, 4000);
+    await page.waitForTimeout(6000);
+    const later = await page.evaluate(() => { const a = window.__app; return { run: a.sim.state.engine.running, stallFlag: !!a.app.stallFlag, ign: a.app.user.ignition, toast: document.getElementById('toasts').innerText, banner: document.getElementById('stall').style.display }; });
+    const ok = r.ok && up.ok && later.run && !later.stallFlag && !/zhasl/.test(later.toast) && later.banner !== 'block';
+    report.wallClock.c.push({ gear: g, before, off, up, later });
+    check(`wall-clock c: restart in gear ${g}: runs within 4 s, still running 6 s later, no stall`, ok, `engaged ${r.ok}, before ${JSON.stringify({ g: before.gear, kmh: +before.kmh.toFixed(1), rpm: Math.round(before.rpm) })}, off.run ${off.run}, ${fmtR(up)}, later ${JSON.stringify(later)}`);
+  }
+  await fresh(false);
+  await page.click('#dock .btn.start'); await page.waitForTimeout(2000);
+  const offN = await S();
+  await page.click('#dock .btn.start');
+  const upN = await until(v => v.run, 3000);
+  report.wallClock.d = { offN, upN };
+  check('wall-clock d: assistant OFF, neutral: stop, 2 s, start -> running within 3 s', !offN.run && upN.ok, `off.run ${offN.run}, ${fmtR(upN)}`);
+
+  // hint toast: starting in gear with the clutch engaged and the assistant off
+  await page.evaluate(() => {
+    const a = window.__app; a.setChapter('jizda'); a.setSlowMode('rot'); a.setSlow(1); a.app.setAssist(false);
+    a.setInputs({ clutchPedal: 1, lever: '1', throttle: 0, ignition: true }); a.fastForward(3, {});
+    a.setInputs({ clutchPedal: 0, ignition: false }); a.fastForward(0.5, {});
+    a.setInputs({ clutchPedal: 0 }); document.getElementById('toasts').replaceChildren();
+  });
+  await page.waitForTimeout(300);
+  const inGear = await S();
+  await page.click('#dock .btn.start'); await page.waitForTimeout(400);
+  const hint = await page.evaluate(() => document.getElementById('toasts').innerText);
+  check('start in gear with clutch engaged (assistant off) shows the hint toast', inGear.gear === '1' && /Startér táhne celé auto/.test(hint), JSON.stringify({ g: inGear.gear, hint }));
+  await page.evaluate(() => { const a = window.__app; a.app.setAssist(true); a.setInputs({ clutchPedal: 0, ignition: true }); });
+
+  // assistant badge shows the new driver stages (start in gear)
+  await page.evaluate(() => { const a = window.__app; a.setChapter('jizda'); });
+  await page.waitForTimeout(1000);
+  await page.keyboard.press('1'); await until(v => v.gear === '1' && v.kmh > 2, 7000);
+  await page.click('#dock .btn.start'); await until(v => !v.run && v.rpm < 1, 5000);   // wait for a fully stopped engine
+  await page.evaluate(() => { window.__badges = new Set(); window.__bt = setInterval(() => { const b = document.getElementById('drvbadge'); if (b.style.display !== 'none') window.__badges.add(b.textContent); }, 8); });
+  await page.click('#dock .btn.start');
+  const afterStart = await until(v => v.run && v.kmh < 12, 4000);
+  await page.waitForTimeout(1500);
+  const stg = await page.evaluate(() => { clearInterval(window.__bt); return [...window.__badges]; });
+  await page.screenshot({ path: path.join(outDir, `25-assistant-start${tag}.png`) });
+  check('assistant badge shows "startuje" when starting in gear; engine runs, no stall', stg.some(t => /startuje/.test(t)) && afterStart.ok && !afterStart.v.stall, `${JSON.stringify(stg)} / ${fmtR(afterStart)}`);
+  await page.keyboard.press('n'); await page.waitForTimeout(500);
+
+  // 7. true slow motion: badge visible in synchron / zpatecka, hidden in a "jen otáčení" chapter
+  const badge = async id => { await page.evaluate(i => window.__app.setChapter(i), id); await page.waitForTimeout(600); return page.evaluate(() => { const b = document.getElementById('timebadge'); return { shown: getComputedStyle(b).display !== 'none', text: b.textContent, mode: window.__app.app.slowMode, angle: window.__app.sim.angleScale, ts: window.__app.app.timeScale }; }); };
+  let bd = await badge('synchron');
+  check('[synchron] "celý čas" badge visible', bd.shown && /Čas zpomalen 20× – pedály, startér a řazení reagují stejně pomalu/.test(bd.text) && bd.mode === 'time' && bd.angle === 1 && Math.abs(bd.ts - 1 / 20) < 1e-9, JSON.stringify(bd));
+  await page.screenshot({ path: path.join(outDir, `24-synchron-badge${tag}.png`) });
+  bd = await badge('zpatecka');
+  check('[zpatecka] "celý čas" badge visible', bd.shown && bd.mode === 'time', JSON.stringify(bd));
+  bd = await badge('klika');
+  check('[klika] badge hidden in "jen otáčení"', !bd.shown && bd.mode === 'rot' && Math.abs(bd.angle - 1 / 20) < 1e-9, JSON.stringify(bd));
+
+  // ---------------------------------------------------------------- clutch detail + ghost screenshots
+  const clutchShot = async (file, pedal) => {
+    await page.evaluate(p => { const a = window.__app; a.setChapter('spojka'); a.app.setView('detail', { instant: true }); a.setPaused(true); a.setInputs({ clutchPedal: p }); a.app.sim.state.clutchPedal = p; a.app.poseDirty = true; }, pedal);
+    await page.waitForTimeout(700); await nonBlank();
+    await page.screenshot({ path: path.join(outDir, file + tag + '.png') });
+  };
+  await clutchShot('30-clutch-detail-0', 0);
+  await clutchShot('31-clutch-detail-1', 1);
+  const px = await page.evaluate(() => { const a = window.__app.app; const THREE = a.THREE, c = a.scene.camera, r = a.scene.canvas.getBoundingClientRect(); const p = x => new THREE.Vector3(x, 100, 0).project(c).x * 0.5 * r.width; return p(411) - p(410); });
+  check('clutch detail framing: 1 mm >= 8 px', px >= 8, px.toFixed(1) + ' px/mm at ' + VW + 'x' + VH);
+  await page.evaluate(() => { const a = window.__app; a.setChapter('spojka'); a.app.setView('celek', { instant: true }); a.setHousing('ghost'); a.setPaused(true); a.setInputs({ clutchPedal: 1 }); a.app.sim.state.clutchPedal = 1; a.app.poseDirty = true; });
+  await page.waitForTimeout(700); await nonBlank();
+  await page.screenshot({ path: path.join(outDir, `32-clutch-ghost${tag}.png`) });
+  await page.evaluate(() => { const a = window.__app; a.setHousing('cut'); a.setPaused(true); a.app.poseDirty = true; });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(outDir, `33-clutch-cut-pedal${tag}.png`) });
+  const disc = await page.evaluate(() => { const a = window.__app; a.setChapter('spojka'); a.app.reset(); a.setPaused(false); a.app.setAssist(true); a.requestGear('N'); a.setInputs({ throttle: 0, clutchPedal: 1 }); return true; });
+  await page.waitForTimeout(3500);
+  const dsk = await S(); const rpmIn = await page.evaluate(() => window.__app.sim.state.rpm);
+  check('clutch chapter: pedal down in neutral -> input shaft stops, engine keeps running', Math.abs(rpmIn.input) < 30 && rpmIn.engine > 500, JSON.stringify(rpmIn));
+
+  // ---------------------------------------------------------------- label stability: anchor dots of rotating bodies must not wobble
+  const ROT_BODIES = /^(crank|camIn|camEx|inputShaft|counterShaft|mainShaft|gear[123 5]|gear1|gear2|gear3|gear5|idlerR|sleeve.*|ring.*|clutchDisc|pressurePlate)$/;
+  async function labelStability(chapter) {
+    await page.evaluate(id => { const a = window.__app; a.setChapter(id); a.setHousing('ghost'); a.setSlowMode('rot'); a.setSlow(1); a.setPaused(false); a.app.reset(); a.app.setAssist(true); a.setInputs({ throttle: 0.25 }); a.requestGear('N'); }, chapter);
+    await page.waitForTimeout(3200);                      // camera tween finished, engine spinning
+    const res = await page.evaluate(() => new Promise(resolve => {
+      const a = window.__app.app, ids = a.labels.ids(), dots = [...document.querySelectorAll('#labels svg circle')];
+      const tr = ids.map(() => ({ x: [], y: [] })), t0 = performance.now();
+      const tick = () => {
+        dots.forEach((d, i) => { if (d.style.display === 'none') return; tr[i].x.push(+d.getAttribute('cx')); tr[i].y.push(+d.getAttribute('cy')); });
+        if (performance.now() - t0 < 3000) requestAnimationFrame(tick); else resolve(ids.map((id, i) => ({ id, body: a.index.parts.get(id).userData.part.body, n: tr[i].x.length, p2p: tr[i].x.length ? Math.hypot(Math.max(...tr[i].x) - Math.min(...tr[i].x), Math.max(...tr[i].y) - Math.min(...tr[i].y)) : null })));
+      };
+      requestAnimationFrame(tick);
+    }));
+    const vis = res.filter(r => r.n > 10), rot = vis.filter(r => ROT_BODIES.test(r.body ?? '') || ROT_BODIES.test(r.id));
+    const worst = rot.slice().sort((p, q) => q.p2p - p.p2p)[0];
+    report.labelStability = report.labelStability ?? {}; report.labelStability[chapter] = res;
+    check(`[${chapter}] label anchors of rotating bodies move < 2 px (${rot.length} labels)`, rot.length > 0 && worst.p2p < 2, worst ? `worst ${worst.id} (${worst.body}) ${worst.p2p.toFixed(1)} px; all: ` + vis.map(r => `${r.id}=${r.p2p.toFixed(1)}`).join(' ') : 'no visible labels');
+  }
+  for (const ch of ['prehled', 'spojka', 'prevodovka']) await labelStability(ch);
+
+  // ---------------------------------------------------------------- gas exchange: section view at 8 cycle angles
+  await page.evaluate(() => { const a = window.__app; a.setChapter('ctyri-doby'); });
+  await page.waitForTimeout(2500);
+  const sec = await page.evaluate(() => ({ view: window.__app.app.view, clip: window.__app.renderer.clippingPlanes.length, gas: window.__app.app.gasOn }));
+  check('ctyri-doby default view is the transverse section', sec.view === 'rez' && sec.clip === 1 && sec.gas === true, JSON.stringify(sec));
+  const ANGLES = [450, 630, 715, 15, 100, 150, 270, 365];
+  let ai = 0;
+  for (const psi of ANGLES) {
+    await page.evaluate(psi2 => { const a = window.__app; a.setPaused(true); const cur = (((a.sim.state.thetaCrank * 180 / Math.PI) % 720) + 720) % 720; a.app.rotateCrank((psi2 - cur) * Math.PI / 180); a.app.poseDirty = true; }, psi);
+    await page.waitForTimeout(450); await nonBlank();
+    await page.screenshot({ path: path.join(outDir, `4${ai}-cycle-${String(psi).padStart(3, '0')}${tag}.png`) });
+    ai++;
+  }
+  await page.evaluate(() => { const a = window.__app; a.app.setView('podelny', { instant: true }); a.setPaused(true); });
+  await page.waitForTimeout(500); await page.screenshot({ path: path.join(outDir, `48-ctyri-doby-podelny${tag}.png`) });
+  const clipOff = await page.evaluate(() => window.__app.renderer.clippingPlanes.length);
+  check('"Podélný pohled" removes the global section', clipOff === 0, String(clipOff));
+  await page.evaluate(() => { const a = window.__app; a.setChapter('rozvod'); a.app.setView('rez', { instant: true }); a.setPaused(true); });
+  await page.waitForTimeout(600); await page.screenshot({ path: path.join(outDir, `49-rozvod-rez${tag}.png`) });
+  await page.evaluate(() => { window.__app.setPaused(false); });
+
   // frame time
   await page.evaluate(() => { const a = window.__app; a.setChapter('prehled'); a.setTimeScale(1 / 4); });
   await page.waitForTimeout(4000);
@@ -181,6 +423,130 @@ try {
   // text sanity: Czech diacritics present in panel
   const text = await page.evaluate(() => document.body.innerText);
   check('Czech text rendered', /Převodovka|převodovk/.test(text) && /ě|š|č|ř|ž/.test(text));
+
+  // ---------------------------------------------------------------- language: default Czech, English via ?lang=en, switch control
+  const trackConsole = p => { p.on('console', m => { const t = m.type(); if (t === 'error' || t === 'warning') report.console.push({ type: t, text: m.text() }); }); p.on('pageerror', e => report.pageErrors.push(String(e))); };
+  const openPage = async (query = '') => {
+    const ctx = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1 });   // fresh storage
+    const p = await ctx.newPage(); trackConsole(p);
+    await p.addInitScript(() => {       // record every string drawn on any 2D canvas (gauges, diagrams)
+      window.__canvasText = new Set();
+      const o = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (t, ...r) { window.__canvasText.add(String(t)); return o.call(this, t, ...r); };
+    });
+    await p.goto(url + query, { waitUntil: 'load' });
+    await p.waitForFunction(() => window.__app && window.__app.ready, null, { timeout: 120000 });
+    await p.evaluate(() => window.__app.ready);
+    return p;
+  };
+  const CZ_CHARS = /[áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]/;
+  const CZ_WORDS = ['Motor běží', 'Spojka', 'Převodovka', 'Kapitola', 'ot/min', 'mezera', 'Stupeň'].map(w => new RegExp(`(?<![\\p{L}])${w}(?![\\p{L}])`, 'iu'));
+  const attrText = p => p.evaluate(() => [...document.querySelectorAll('[title],[aria-label],[placeholder]')].flatMap(e => [e.title, e.getAttribute('aria-label'), e.getAttribute('placeholder')]).filter(Boolean).join('\n'));
+  const pageText = async p => (await p.evaluate(() => document.body.innerText + '\n' + [...window.__canvasText].join('\n') + '\n' + document.title + '\n' + (document.querySelector('meta[name=description]')?.content ?? '') + '\n' + document.getElementById('loading-msg')?.textContent)) + '\n' + await attrText(p);
+
+  // default: Czech
+  {
+    const p = await openPage();
+    const d = await p.evaluate(() => ({ lang: document.documentElement.lang, title: document.title, txt: document.body.innerText, ch: window.__app.app.chapter.title, sw: [...document.querySelectorAll('.lang-switch button')].map(b => b.textContent + ':' + b.getAttribute('aria-pressed')).join(' ') }));
+    check('language: default (no parameter, empty storage) is Czech', d.lang === 'cs' && /Motor a převodovka/.test(d.title) && /Kapitola 01/i.test(d.txt) && /Přehled ústrojí/.test(d.ch) && /Motor běží/i.test(d.txt), JSON.stringify({ lang: d.lang, title: d.title, ch: d.ch, sw: d.sw }));
+    check('language: switch control shows CZ active', d.sw === 'CZ:true EN:false', d.sw);
+    await p.context().close();
+  }
+
+  // English
+  {
+    const p = await openPage('?lang=en');
+    const texts = [];
+    const sample = async () => texts.push(await pageText(p));
+    const I = await p.evaluate(() => ({ lang: document.documentElement.lang, title: document.title }));
+    check('language: ?lang=en sets <html lang> and the document title', I.lang === 'en' && I.title === 'Engine and gearbox – interactive 3D model', JSON.stringify(I));
+    await p.evaluate(() => { window.__toastLog = []; new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => window.__toastLog.push(n.textContent)))).observe(document.getElementById('toasts'), { childList: true }); });
+    await sample();
+    const shots = { prehled: '60-en-prehled', 'ctyri-doby': '61-en-ctyri-doby', spojka: '62-en-spojka', synchron: '63-en-synchron' };
+    const ids = await p.evaluate(() => window.__app.app.chapterIds);
+    for (const id of ids) {
+      await p.evaluate(i => { window.__app.setChapter(i); window.__app.app.setLabelsOn(true); }, id);
+      await p.waitForTimeout(2300);
+      await sample();
+      if (shots[id]) await p.screenshot({ path: path.join(outDir, shots[id] + tag + '.png') });
+    }
+    // chapter views / actions / legend: click every button of every chapter's action row once (text only)
+    // glossary + simplifications tabs
+    await p.click('.p-tab[data-k=glossary]'); await sample();
+    await p.click('.gentry'); await sample();
+    await p.click('.p-tab[data-k=simpl]'); await sample();
+    await p.click('.p-tab[data-k=chapters]');
+    // hover tooltip + part card for three picked parts
+    const picked = [];
+    for (const [ch, cands] of [['klika', ['piston2', 'piston3']], ['prehled', ['flywheel', 'crankshaft']], ['prevodovka', ['inputShaft', 'counterShaft', 'mainShaft']]]) {
+      await p.evaluate(c => { const a = window.__app; a.setChapter(c); a.setPaused(true); }, ch);
+      await p.waitForTimeout(1900);
+      for (const id of cands) {
+        const pt = await p.evaluate(pid => {
+          const a = window.__app.app, THREE = a.THREE, g = a.index.parts.get(pid); if (!g) return null;
+          const c = new THREE.Box3().setFromObject(g).getCenter(new THREE.Vector3()).project(a.scene.camera), r = a.scene.canvas.getBoundingClientRect();
+          return { x: r.left + (c.x * 0.5 + 0.5) * r.width, y: r.top + (-c.y * 0.5 + 0.5) * r.height };
+        }, id);
+        if (!pt) continue;
+        await p.mouse.move(pt.x - 3, pt.y); await p.mouse.move(pt.x, pt.y, { steps: 3 }); await p.waitForTimeout(400);
+        const tip = await p.evaluate(() => { const t = document.getElementById('tooltip'); return t.style.display !== 'none' ? t.textContent : ''; });
+        await p.mouse.click(pt.x, pt.y); await p.waitForTimeout(300);
+        const card = await p.evaluate(() => { const c = document.getElementById('partcard'); return c.style.display === 'block' ? c.innerText : ''; });
+        if (tip && card) { picked.push({ id, tip, card: card.replace(/\n/g, ' ').slice(0, 70) }); texts.push(tip, card); await p.evaluate(() => window.__app.app.selectPart(null)); break; }
+      }
+    }
+    check('language: EN hover tooltip + part card for 3 picked parts', picked.length >= 3 && picked.every(x => !CZ_CHARS.test(x.tip + x.card)), JSON.stringify(picked));
+    // toasts: gear engagement, grinding (assistant off, no clutch), stall
+    await p.evaluate(() => { const a = window.__app; a.setChapter('jizda'); a.reset(); a.setSlowMode('rot'); a.setSlow(1); a.setPaused(false); });
+    await p.waitForTimeout(1500);
+    await p.keyboard.press('1'); await p.waitForTimeout(4500);
+    await p.evaluate(() => {
+      const a = window.__app; a.app.setAssist(false); a.setInputs({ throttle: 0.5, clutchPedal: 0, lever: '3' });
+    });
+    await p.waitForTimeout(2500); await sample();
+    await p.evaluate(() => {
+      const a = window.__app; a.app.setAssist(false);
+      a.setInputs({ throttle: 0, clutchPedal: 1, lever: '1' }); a.fastForward(3, {});
+      a.setInputs({ throttle: 0.5, clutchPedal: 0 }); a.fastForward(5, {});
+      a.setInputs({ throttle: 0, brake: 1 }); a.setPaused(false);
+    });
+    await p.waitForFunction(() => /stall/i.test(window.__toastLog.join('|')), null, { timeout: 12000 }).catch(() => {});
+    await p.waitForTimeout(500); await sample();
+    await p.evaluate(() => { const a = window.__app; a.setInputs({ brake: 0, clutchPedal: 1, lever: 'N' }); a.app.setAssist(true); });
+    await p.waitForTimeout(800);
+    await p.keyboard.press('2'); await p.waitForTimeout(3000); await sample();
+    const log = await p.evaluate(() => window.__toastLog);
+    texts.push(...log);
+    check('language: EN toasts seen (engaged + stall + grind)', log.some(t => /^Engaged: /.test(t)) && log.some(t => /stalled/i.test(t)) && log.some(t => /Synchronizer is blocking/.test(t)), JSON.stringify(log));
+    // every part label: no Czech name left
+    const labs = await p.evaluate(() => [...window.__app.app.index.parts.values()].map(g => g.userData.part.label));
+    // 3D labels rendered in the scene are DOM: sampled above through innerText; the tooltip/card use the same partLabel()
+    const all = texts.join('\n');
+    const hits = [...new Set(all.split('\n').filter(l => CZ_CHARS.test(l)))].slice(0, 8);
+    const words = CZ_WORDS.filter(re => re.test(all)).map(String);
+    check('language: no Czech characters anywhere in the English UI', hits.length === 0, hits.join(' | '));
+    check('language: none of the Czech marker words in the English UI', words.length === 0, words.join(' '));
+    check('language: English UI sampled a lot of text', all.length > 20000 && /Chapter 01/i.test(all) && /Engine running|Engine stopped|Engine coasting/i.test(all), `${all.length} chars, ${labs.length} part labels`);
+    await p.context().close();
+  }
+
+  // real clicks on the switch: EN keeps the chapter, CZ returns
+  {
+    const p = await openPage();
+    await p.evaluate(() => window.__app.setChapter('spojka'));
+    await p.waitForTimeout(800);
+    await p.click('.lang-switch button[data-lang=en]');
+    await p.waitForFunction(() => document.documentElement.lang === 'en' && window.__app && window.__app.app, null, { timeout: 120000 });
+    await p.evaluate(() => window.__app.ready);
+    let d = await p.evaluate(() => ({ lang: document.documentElement.lang, ch: window.__app.app.chapter.id, kicker: document.querySelector('.kicker').textContent, h2: document.querySelector('article.chapter h2').textContent, stored: localStorage.getItem('engine-gearshift.lang'), sw: [...document.querySelectorAll('.lang-switch button')].map(b => b.textContent + ':' + b.getAttribute('aria-pressed')).join(' ') }));
+    check('language: click EN reloads in English on the same chapter', d.lang === 'en' && d.ch === 'spojka' && /^Chapter 06/.test(d.kicker) && d.h2 === 'Flywheel and Clutch' && d.sw === 'CZ:false EN:true', JSON.stringify(d));
+    await p.click('.lang-switch button[data-lang=cz], .lang-switch button[data-lang=cs]');
+    await p.waitForFunction(() => document.documentElement.lang === 'cs' && window.__app && window.__app.app, null, { timeout: 120000 });
+    await p.evaluate(() => window.__app.ready);
+    d = await p.evaluate(() => ({ lang: document.documentElement.lang, ch: window.__app.app.chapter.id, kicker: document.querySelector('.kicker').textContent, h2: document.querySelector('article.chapter h2').textContent, stored: localStorage.getItem('engine-gearshift.lang') }));
+    check('language: click CZ returns to Czech on the same chapter', d.lang === 'cs' && d.ch === 'spojka' && /^Kapitola 06/.test(d.kicker) && d.h2 === 'Setrvačník a spojka', JSON.stringify(d));
+    await p.context().close();
+  }
 
   const errs = report.console.filter(c => c.type === 'error').concat(report.pageErrors.map(t => ({ type: 'pageerror', text: t })));
   const warns = report.console.filter(c => c.type === 'warning' && !/GPU stall|swiftshader|GL Driver|BVH: "maxLeafSize"/i.test(c.text));

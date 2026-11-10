@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { partLabel } from './content/index.js';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -62,7 +63,7 @@ export function createPicking({ index, scene, host, housing, onSelect }) {
     const part = pick(ev);
     if (!part) { tip.style.display = 'none'; canvas.style.cursor = ''; return; }
     const r = host.getBoundingClientRect();
-    tip.textContent = part.label;
+    tip.textContent = partLabel(part);
     tip.style.display = 'block';
     tip.style.left = Math.min(ev.clientX - r.left + 14, r.width - tip.offsetWidth - 6) + 'px';
     tip.style.top = (ev.clientY - r.top + 16) + 'px';

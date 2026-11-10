@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { SPEC } from '../spec.js';
-import { derive } from '../kin/derive.js';
+import { derive, rad, deg, mod } from '../kin/derive.js';
 import { valveLift, camAngle } from '../kin/cam.js';
-import { pistonCrownY, throwAngle } from '../kin/engine.js';
+import { pistonCrownY, throwAngle, cylinderVolume } from '../kin/engine.js';
 import { mat } from '../geo/materials.js';
 import { partGroup, segs } from '../geo/parts.js';
 import { buildHeadGeometry, buildPedestalGeometry, headTopY } from '../geo/topHead.js';
 import { buildValveGeometries, latheSolid } from '../geo/topValve.js';
+import { chargeCloud, portFrame, buildManifoldGeometry, MANIFOLD_LEN } from '../geo/topGas.js';
 import { lobeGeometry, shaftGeometry, sprocketGeometry, flangeGeometry, beltPath, beltBandGeometry } from '../geo/topCam.js';
 
 // Dimensions that are not in SPEC (decorative / construction choices of this module).
@@ -30,6 +31,9 @@ const C = {
   expA: hex('#ff7a1a'), expB: hex('#7a2b12'), exhaust: hex('#8d8d8d'),
 };
 const clamp01 = x => Math.min(1, Math.max(0, x));
+// gas-exchange visuals (docs/plan/G1-gas-flow.md)
+const G = { blue: hex('#58b4ff'), violet: hex('#9a7bff'), yw: hex('#fff1a8'), orange: hex('#ff7a1a'), dark: hex('#7a2b12'), exh: hex('#cdb38b'), hot: hex('#c9703a') };
+const GAS = { M: 140, streamN: 14, chargeR: 1.9, streamR: 2.3, liftMin: 0.05 };
 
 export function buildTopEnd(spec = SPEC) {
   const D = derive(spec), E = spec.engine, VT = E.valvetrain, TD = E.timingDrive, V = E.valves;
@@ -178,7 +182,17 @@ export function buildTopEnd(spec = SPEC) {
     teeth.instanceMatrix.needsUpdate = true;
   }
 
-  // ───────────── gas volumes and sparks (visual only) ─────────────
+  // ───────────── manifold stubs (static, head body) ─────────────
+  for (const [id, kind, label] of [['intakeManifold', 'in', 'Sací potrubí'], ['exhaustManifold', 'ex', 'Výfukové potrubí']]) {
+    const part = partGroup(id, 'head', label, { static: true });
+    const m = new THREE.Mesh(buildManifoldGeometry(spec, L, kind), mat('housing'));
+    m.userData.housing = true;
+    m.name = id + 'Tubes';
+    part.add(m);
+    group.add(part);
+  }
+
+  // ───────────── gas volumes, charge particles, port streams, sparks and flame (visual only) ─────────────
   const Rg = D.R - 0.6;
   const gasLower = new THREE.CylinderGeometry(Rg, Rg, 1, 48, 1, false);
   gasLower.translate(0, 0.5, 0);
@@ -191,9 +205,49 @@ export function buildTopEnd(spec = SPEC) {
     gasCap.translate(0, D.headFaceY, 0);
     gasCap.computeVertexNormals();
   }
-  const gas = [], sparks = [];
-  const sparkGeo = new THREE.SphereGeometry(2.5, 16, 12);
+  const cloud = chargeCloud(spec, GAS.M), M = GAS.M, NS = GAS.streamN;
+  const tanG = Math.tan(gamma), Vc = D.clearanceVolume, Vd = D.displacement;
+  const EVO = D.valve.ex.openDeg;
+  const tipY = apex - E.head.sparkPlug.tipProtrusion - 1;     // flame origin / spark position (cylinder-local x = 0, z = 0)
+  const sphereLo = new THREE.IcosahedronGeometry(1, 0), sphereHi = new THREE.IcosahedronGeometry(1, 1);
+  const chargeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
   const sparkMat = new THREE.MeshBasicMaterial({ color: 0xfff4b0 });
+  const sparkGeo = new THREE.SphereGeometry(3, 16, 12);
+  const starGeos = [new THREE.BoxGeometry(11, 0.7, 0.7), new THREE.BoxGeometry(0.7, 11, 0.7), new THREE.BoxGeometry(0.7, 0.7, 11)];
+  const glowGeo = new THREE.SphereGeometry(1, 20, 14);
+
+  const newInstanced = (geo, material, n, withColor) => {
+    const im = new THREE.InstancedMesh(geo, material, n);
+    im.userData.noCollide = true;
+    im.frustumCulled = false;
+    const e = im.instanceMatrix.array;
+    for (let i = 0; i < n; i++) { e.fill(0, i * 16, i * 16 + 16); e[i * 16 + 15] = 1; }
+    if (withColor) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
+    return im;
+  };
+  const putInst = (im, i, x, y, z, s) => {
+    const e = im.instanceMatrix.array, o = i * 16;
+    e[o] = s; e[o + 5] = s; e[o + 10] = s; e[o + 12] = x; e[o + 13] = y; e[o + 14] = z;
+  };
+
+  // port streams: waypoint polyline (outer -> inner) in the cylinder-local frame; points 5..7 depend on the valve lift
+  const NP = 8;
+  const makeStream = (kind, which) => {
+    const f = portFrame(spec, L, kind, which);
+    const sx = which ? 1 : -1, t = f.tFace;
+    const pts = new Float64Array(NP * 3);
+    const set = (i, x, y, r) => {                 // valve-local (x, y along the axis, r along the outward direction)
+      pts[i * 3] = f.seat[0] + x;
+      pts[i * 3 + 1] = f.seat[1] + f.a[1] * y + f.o[1] * r;
+      pts[i * 3 + 2] = f.seat[2] + f.a[2] * y + f.o[2] * r;
+    };
+    const onPort = (i, tt) => { for (let c = 0; c < 3; c++) pts[i * 3 + c] = f.q0[c] + f.dir[c] * tt; };
+    onPort(0, t + MANIFOLD_LEN - 2); onPort(1, t); onPort(2, 9);
+    set(3, sx * 9, 10, 0); set(4, 0, 5, -(f.rNeck - 1.6));
+    return { f, kind, which, pts, cum: new Float64Array(NP), set };
+  };
+
+  const gas = [], sparks = [];
   D.cylX.forEach((cx, i) => {
     const gm = new THREE.MeshBasicMaterial({ color: 0x5fb3ff, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
     const gp = partGroup(`gas${i + 1}`, 'head', `Plyn ve válci ${i + 1}`, { static: true });
@@ -201,22 +255,77 @@ export function buildTopEnd(spec = SPEC) {
     const lower = new THREE.Mesh(gasLower, gm); lower.userData.noCollide = true;
     const cap = new THREE.Mesh(gasCap, gm); cap.userData.noCollide = true;
     gp.add(lower, cap);
+    const charge = newInstanced(sphereLo, chargeMat, M, true);
+    charge.name = `gasCharge${i + 1}`;
+    gp.add(charge);
+    const streams = [];
+    for (const kind of ['in', 'ex']) for (const which of [0, 1]) {
+      const st = makeStream(kind, which);
+      st.mat = new THREE.MeshBasicMaterial({ color: kind === 'in' ? 0x58b4ff : 0xcdb38b, toneMapped: false });
+      st.mesh = newInstanced(sphereHi, st.mat, NS, false);
+      st.mesh.name = `gasStream${i + 1}${kind}${which ? 'b' : 'a'}`;
+      st.mesh.visible = false;
+      gp.add(st.mesh);
+      streams.push(st);
+    }
     group.add(gp);
-    gas.push({ gp, lower, mat: gm });
+    gas.push({ gp, lower, mat: gm, charge, streams, dist: new Float32Array(M), Rf: 0 });
 
     const sp = partGroup(`spark${i + 1}`, 'head', `Jiskra ${i + 1}`, { static: true });
-    sp.position.set(cx, apex - E.head.sparkPlug.tipProtrusion - 1, 0);
-    const sm = new THREE.Mesh(sparkGeo, sparkMat); sm.userData.noCollide = true; sm.visible = false;
-    sp.add(sm);
+    sp.position.set(cx, tipY, 0);
+    const sm = new THREE.Mesh(sparkGeo, sparkMat); sm.userData.noCollide = true; sm.visible = false; sm.name = `sparkCore${i + 1}`;
+    sp.add(sm);                                   // children[0] stays the spark core (tests / app rely on it)
+    const star = starGeos.map(g => { const m = new THREE.Mesh(g, sparkMat); m.userData.noCollide = true; m.visible = false; sp.add(m); return m; });
+    const glow = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({ color: 0xffa030, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+    glow.userData.noCollide = true; glow.visible = false; glow.name = `flameGlow${i + 1}`;
+    sp.add(glow);
     group.add(sp);
-    sparks.push(sm);
+    sparks.push({ core: sm, star, glow });
+    gas[i].spark = sparks[i];
   });
+
+  const _c = new THREE.Color(), _c2 = new THREE.Color();
+  const EDGE = 0.07;
+  const edge = u => Math.min(1, u / EDGE, (1 - u) / EDGE);
+
+  function updateStream(st, g, crown, lift, flow, phase, hot) {
+    const mesh = st.mesh;
+    const on = lift > GAS.liftMin && flow > 0;
+    mesh.visible = on;
+    if (st.kind === 'in') st.mat.color.copy(G.blue); else st.mat.color.copy(G.hot).lerp(G.exh, hot);
+    if (!on) { for (let j = 0; j < NS; j++) putInst(mesh, j, 0, 0, 0, 0); mesh.instanceMatrix.needsUpdate = true; return; }
+    const f = st.f, d = spec.engine.valves.seatGap + lift, sx = st.which ? 1 : -1, rh = f.rh;
+    st.set(5, 0, 2.2 - d * 0.5, -(rh - 1.2));
+    st.set(6, 0, (2.2 - d) * 0.5, -(rh + 0.9));
+    st.set(7, 0, -d - 10, -(rh + 6));
+    const p = st.pts, cum = st.cum;
+    cum[0] = 0;
+    for (let k = 1; k < NP; k++) cum[k] = cum[k - 1] + Math.hypot(p[k * 3] - p[k * 3 - 3], p[k * 3 + 1] - p[k * 3 - 2], p[k * 3 + 2] - p[k * 3 - 1]);
+    const total = cum[NP - 1], inward = st.kind === 'in';
+    const size = GAS.streamR * Math.max(0.3, Math.min(1, lift / 2)) * flow;
+    for (let j = 0; j < NS; j++) {
+      let u = j / NS + phase; u -= Math.floor(u);
+      const sdist = (inward ? u : 1 - u) * total;
+      let k = 1; while (k < NP - 1 && cum[k] < sdist) k++;
+      const w = (sdist - cum[k - 1]) / Math.max(1e-9, cum[k] - cum[k - 1]);
+      const x = p[k * 3 - 3] + (p[k * 3] - p[k * 3 - 3]) * w;
+      let y = p[k * 3 - 2] + (p[k * 3 + 1] - p[k * 3 - 2]) * w;
+      const z = p[k * 3 - 1] + (p[k * 3 + 2] - p[k * 3 - 1]) * w;
+      if (y < crown + 1.5) y = crown + 1.5;
+      putInst(mesh, j, x, y, z, size * edge(u));
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
 
   function updateGas(pose) {
     const cyl = pose.cylinders;
     for (let i = 0; i < gas.length; i++) {
-      const g = gas[i];
-      if (!cyl || !cyl[i]) { g.gp.visible = false; sparks[i].visible = false; continue; }
+      const g = gas[i], sp = g.spark;
+      if (!cyl || !cyl[i]) {
+        g.gp.visible = false; sp.core.visible = false; sp.glow.visible = false;
+        for (const m of sp.star) m.visible = false;
+        continue;
+      }
       const s = cyl[i];
       g.gp.visible = true;
       const crown = pistonCrownY(throwAngle(pose.crank, i));
@@ -231,8 +340,78 @@ export function buildTopEnd(spec = SPEC) {
         case 'expansion': { const t = 1 - clamp01((s.pBar - 1) / 40); col.copy(C.expA).lerp(C.expB, t); a = 0.6 - 0.3 * t; break; }
         default: col.copy(C.exhaust); a = 0.3;
       }
-      g.mat.opacity = a;
-      sparks[i].visible = !!s.spark;
+      g.mat.opacity = a * 0.4;
+
+      // ---- cycle state of this cylinder ----
+      const psi = s.psiDeg ?? mod(deg(pose.crank) - D.firingAngleDeg[i], 720);
+      const exhausting = psi >= EVO && psi < 360;
+      const blow = exhausting ? 1 - Math.exp(-(psi - EVO) / 15) : 0;                 // 0 at EVO -> 1
+      const vfrac = clamp01((cylinderVolume(rad(psi)) - Vc) / Vd);
+      const inducted = psi >= 540 || psi < EVO ? 1 : psi >= 360 ? vfrac : 0;
+      const remaining = exhausting ? (psi < 180 ? 1 : vfrac) * (1 - 0.35 * blow) : psi >= 360 ? 0 : 1;
+      const frac = exhausting ? remaining : inducted;
+      const rank = exhausting ? cloud.rankEx : cloud.rankIn;
+      const limit = frac * M;
+
+      // ---- flame front ----
+      const burning = s.phase === 'combustion' && s.burn > 0.02 && s.burn < 0.98;
+      const burnt = s.burn > 0.02;
+      const dist = g.dist;
+      let dmax = 0, Rf = 0;
+      const ch = g.charge, ce = ch.instanceMatrix.array, cc = ch.instanceColor.array;
+      const R2 = GAS.chargeR;
+      for (let k = 0; k < M; k++) {
+        const x = cloud.x[k], z = cloud.z[k];
+        const roof = apex - Math.abs(z) * tanG, span = roof - crown;
+        const m = Math.min(R2, span * 0.45);
+        const y = crown + m + cloud.h[k] * (span - 2 * m);
+        if (rank[k] < limit) putInst(ch, k, x, y, z, R2); else putInst(ch, k, x, y, z, 0);
+        if (burnt) { const dd = Math.hypot(x, y - tipY, z); dist[k] = dd; if (rank[k] < limit && dd > dmax) dmax = dd; }
+      }
+      if (burnt) Rf = Math.pow(clamp01(s.burn), 1 / 3) * dmax;
+      g.Rf = Rf;
+
+      // base colour of unburned / bulk charge
+      switch (s.phase) {
+        case 'intake': _c.copy(G.blue); break;
+        case 'exhaust': _c.copy(G.dark).lerp(G.exh, blow); break;
+        case 'compression': _c.copy(G.blue).lerp(G.violet, clamp01((s.pBar - 1) / 15)); break;
+        default:
+          if (burnt) _c.copy(G.orange).lerp(G.dark, 1 - clamp01((s.pBar - 1) / 40));
+          else _c.copy(G.blue).lerp(G.violet, clamp01((s.pBar - 1) / 15));
+      }
+      const pre = s.phase === 'combustion';
+      _c2.copy(G.blue).lerp(G.violet, clamp01((s.pBar - 1) / 15)); if (pre) _c2.copy(G.violet);
+      const bb = s.burn * s.burn, fadeLen = Math.max(1e-6, 0.35 * dmax);
+      for (let k = 0; k < M; k++) {
+        const o = k * 3;
+        if (pre) {
+          if (dist[k] < Rf) {
+            const t = Math.max(clamp01((Rf - dist[k]) / fadeLen), bb);
+            cc[o] = G.yw.r + (G.orange.r - G.yw.r) * t; cc[o + 1] = G.yw.g + (G.orange.g - G.yw.g) * t; cc[o + 2] = G.yw.b + (G.orange.b - G.yw.b) * t;
+          } else { cc[o] = _c2.r; cc[o + 1] = _c2.g; cc[o + 2] = _c2.b; }
+        } else { cc[o] = _c.r; cc[o + 1] = _c.g; cc[o + 2] = _c.b; }
+      }
+      ch.instanceMatrix.needsUpdate = true; ch.instanceColor.needsUpdate = true;
+
+      // ---- port streams ----
+      const hot = blow;
+      const liftIn = valveLift('in', i, pose.crank), liftEx = valveLift('ex', i, pose.crank);
+      const fadeIn = psi >= 540 && psi < 720 ? Math.max(0, 1 - (psi - 540) / 25) : 1;
+      for (let q = 0; q < 4; q++) {
+        const st = g.streams[q];
+        if (st.kind === 'in') updateStream(st, g, crown, liftIn, fadeIn, 3 * inducted, 0);
+        else updateStream(st, g, crown, liftEx, 1, 3 * (1 - remaining), hot);
+      }
+
+      // ---- ignition ----
+      sp.core.visible = !!s.spark;
+      for (const m of sp.star) m.visible = !!s.spark;
+      const glowOn = burning && Rf > 0;
+      sp.glow.visible = glowOn;
+      const r = glowOn ? Math.max(0.5, Math.min(Rf, tipY - crown - 0.5, D.R * 0.98)) : 0.001;
+      sp.glow.scale.setScalar(r);
+      sp.glow.material.opacity = glowOn ? 0.45 * (1 - 0.5 * s.burn) : 0;
     }
   }
 

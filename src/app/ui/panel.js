@@ -1,4 +1,5 @@
-import { chapters, glossary, simplifications, ui } from '../content/cs.js';
+import { chapters, glossary, simplifications, ui, lang } from '../content/index.js';
+import { setLang, CHAPTER_KEY } from '../i18n.js';
 import { createDiagram, createCylinderTable } from '../diagrams.js';
 
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -6,7 +7,20 @@ const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) 
 export function buildPanel(app, root) {
   root.replaceChildren();
   const head = h('div', 'p-head');
-  head.appendChild(h('div', 'p-title', `<h1>${ui.appTitle}</h1><span>4T · 1998 cm³ · 5+R</span>`));
+  const titleRow = h('div', 'p-title', `<h1>${ui.appTitle}</h1><span>${ui.panelSubtitle}</span>`);
+  // CZ | EN switch: the page reloads in the other language and returns to the same chapter
+  const sw = h('div', 'lang-switch'); sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', ui.langSwitch);
+  [['cs', 'CZ', ui.langCs], ['en', 'EN', ui.langEn]].forEach(([l, t, name]) => {
+    const b = h('button', '', t); b.type = 'button'; b.title = name; b.dataset.lang = l; b.setAttribute('aria-pressed', String(l === lang));
+    b.addEventListener('click', () => {
+      if (l === lang) return;
+      try { sessionStorage.setItem(CHAPTER_KEY, app.chapter?.id ?? ''); } catch { /* storage blocked */ }
+      setLang(l);
+    });
+    sw.appendChild(b);
+  });
+  titleRow.appendChild(sw);
+  head.appendChild(titleRow);
   const tabs = h('div', 'p-tabs');
   const tabDefs = [['chapters', ui.tabs.chapters], ['glossary', ui.tabs.glossary], ['simpl', ui.tabs.simplifications]];
   const tabBtns = tabDefs.map(([k, t]) => { const b = h('button', 'p-tab', t); b.type = 'button'; b.dataset.k = k; b.setAttribute('role', 'tab'); tabs.appendChild(b); return b; });
@@ -14,7 +28,7 @@ export function buildPanel(app, root) {
   const body = h('div', 'p-body');
   root.append(head, body);
 
-  let tab = 'chapters', diagram = null, extra = null;
+  let tab = 'chapters', diagram = null, extra = null, onView = null;
 
   /* ---------- chapters */
   function renderChapter() {
@@ -28,9 +42,22 @@ export function buildPanel(app, root) {
       nav.appendChild(b);
     });
     const art = h('article', 'chapter');
-    art.appendChild(h('div', 'kicker', `Kapitola ${String(i + 1).padStart(2, '0')} / ${chapters.length}`));
+    art.appendChild(h('div', 'kicker', `${ui.chapterKicker}${String(i + 1).padStart(2, '0')} / ${chapters.length}`));
     art.appendChild(h('h2', '', ch.title));
     art.appendChild(h('div', 'prose', ch.html));
+    let viewBtns = [];
+    if (ch.views?.length > 1) {
+      const vr = h('div', 'viewrow'); vr.appendChild(h('span', 't-lbl', ui.toolbar.view));
+      viewBtns = ch.views.map(v => { const b = h('button', 'btn view', v.label); b.type = 'button'; b.dataset.v = v.id; b.addEventListener('click', () => app.setView(v.id)); vr.appendChild(b); return b; });
+      art.appendChild(vr);
+      const sync = () => viewBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === app.view)));
+      sync(); onView = sync;
+    } else onView = null;
+    if (ch.legend) {
+      const lg = h('div', 'legend');
+      ch.legend.forEach(([c, t]) => lg.appendChild(h('span', 'lg', `<i style="background:${c}"></i>${t}`)));
+      art.appendChild(lg);
+    }
     const acts = h('div', 'actions');
     if (ch.setup) { const b = h('button', 'btn primary', ui.replay); b.type = 'button'; b.addEventListener('click', () => app.replayChapter()); acts.appendChild(b); }
     (ch.actions ?? []).forEach(a => { const b = h('button', 'btn', a.label); b.type = 'button'; b.addEventListener('click', () => a.run(app)); acts.appendChild(b); });
@@ -80,8 +107,8 @@ export function buildPanel(app, root) {
   function renderSimpl() {
     diagram = extra = null;
     body.replaceChildren();
-    const w = h('div', 'simpl', '<h2>Zjednodušení modelu</h2>');
-    w.appendChild(h('p', '', 'Model je mechanicky věrný v kinematice (úhly, zdvihy, převody, pořadí), ale několik věcí je záměrně zjednodušeno nebo odhadnuto:'));
+    const w = h('div', 'simpl', `<h2>${ui.simplHeading}</h2>`);
+    w.appendChild(h('p', '', ui.simplIntro));
     const ul = h('ul'); simplifications.forEach(s => ul.appendChild(h('li', '', s))); w.appendChild(ul);
     body.appendChild(w);
   }
@@ -94,6 +121,7 @@ export function buildPanel(app, root) {
   }
   tabBtns.forEach(b => b.addEventListener('click', () => show(b.dataset.k)));
   app.on('chapter', () => show('chapters'));
+  app.on('view', () => onView?.());
   let last = 0;
   app.on('tick', ctx => {
     if (tab !== 'chapters') return;

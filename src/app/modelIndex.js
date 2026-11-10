@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 
+// Parts that behave like housings in every display mode (ghost / cut / solid / hidden). They share a material with other
+// steel parts, so their meshes get a private material instance.
+const SHELL_PARTS = ['clutchCover'];
+
 /** Walk the assembly once and index meshes and parts (guards against stub/empty modules). */
 export function indexModel(assembly) {
   const meshes = [];          // { mesh, part, body, housing, noCollide, orig }
@@ -9,6 +13,13 @@ export function indexModel(assembly) {
     if (!o.isMesh) return;
     let p = o, part = null;
     while (p) { if (p.userData?.part) { part = p.userData.part; break; } p = p.parent; }
+    if (part && SHELL_PARTS.includes(part.id) && !o.userData.noCollide) {
+      o.material = o.material.clone();
+      // seen from inside (through a section) the shell is dark, so gaps between the clutch parts read as gaps
+      o.material.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', 'gl_FragColor.rgb *= gl_FrontFacing ? 1.0 : 0.12;\n#include <dithering_fragment>'); };
+      o.material.customProgramCacheKey = () => 'shellDark';
+      o.userData.housing = true;
+    }
     meshes.push({
       mesh: o, part, body: part?.body ?? null,
       housing: !!o.userData.housing, noCollide: !!o.userData.noCollide, orig: o.material,
