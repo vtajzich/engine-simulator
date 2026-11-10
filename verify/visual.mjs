@@ -69,7 +69,7 @@ page.on('console', m => {
 page.on('pageerror', e => report.pageErrors.push(String(e)));
 
 try {
-  await page.goto(url, { waitUntil: 'load' });
+  await page.goto(url + '?lang=cs', { waitUntil: 'load' });   // the checks below read the Czech UI; the default language is English
   await page.waitForFunction(() => window.__app && window.__app.ready, null, { timeout: 120000 });
   await page.evaluate(() => window.__app.ready);       // rejects on boot failure
   check('app ready', true);
@@ -599,7 +599,7 @@ try {
   const text = await page.evaluate(() => document.body.innerText);
   check('Czech text rendered', /Převodovka|převodovk/.test(text) && /ě|š|č|ř|ž/.test(text));
 
-  // ---------------------------------------------------------------- language: default Czech, English via ?lang=en, switch control
+  // ---------------------------------------------------------------- language: default English, Czech via ?lang=cs, switch control
   const trackConsole = p => { p.on('console', m => { const t = m.type(); if (t === 'error' || t === 'warning') report.console.push({ type: t, text: m.text() }); }); p.on('pageerror', e => report.pageErrors.push(String(e))); };
   const openPage = async (query = '') => {
     const ctx = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1 });   // fresh storage
@@ -619,12 +619,12 @@ try {
   const attrText = p => p.evaluate(() => [...document.querySelectorAll('[title],[aria-label],[placeholder]')].flatMap(e => [e.title, e.getAttribute('aria-label'), e.getAttribute('placeholder')]).filter(Boolean).join('\n'));
   const pageText = async p => (await p.evaluate(() => document.body.innerText + '\n' + [...window.__canvasText].join('\n') + '\n' + document.title + '\n' + (document.querySelector('meta[name=description]')?.content ?? '') + '\n' + document.getElementById('loading-msg')?.textContent)) + '\n' + await attrText(p);
 
-  // default: Czech
+  // default: English
   {
     const p = await openPage();
     const d = await p.evaluate(() => ({ lang: document.documentElement.lang, title: document.title, txt: document.body.innerText, ch: window.__app.app.chapter.title, sw: [...document.querySelectorAll('.lang-switch button')].map(b => b.textContent + ':' + b.getAttribute('aria-pressed')).join(' ') }));
-    check('language: default (no parameter, empty storage) is Czech', d.lang === 'cs' && /Motor a převodovka/.test(d.title) && /Kapitola 01/i.test(d.txt) && /Přehled ústrojí/.test(d.ch) && /Motor běží/i.test(d.txt), JSON.stringify({ lang: d.lang, title: d.title, ch: d.ch, sw: d.sw }));
-    check('language: switch control shows CZ active', d.sw === 'CZ:true EN:false', d.sw);
+    check('language: default (no parameter, empty storage) is English', d.lang === 'en' && /Engine and gearbox/.test(d.title) && /Chapter 01/i.test(d.txt) && /Overview of the Drivetrain/.test(d.ch) && /Engine running/i.test(d.txt), JSON.stringify({ lang: d.lang, title: d.title, ch: d.ch, sw: d.sw }));
+    check('language: switch control shows EN active', d.sw === 'CZ:false EN:true', d.sw);
     await p.context().close();
   }
 
@@ -715,21 +715,21 @@ try {
     await p.context().close();
   }
 
-  // real clicks on the switch: EN keeps the chapter, CZ returns
+  // real clicks on the switch: CZ keeps the chapter, EN returns
   {
     const p = await openPage();
     await p.evaluate(() => window.__app.setChapter('spojka'));
     await p.waitForTimeout(800);
-    await p.click('.lang-switch button[data-lang=en]');
-    await p.waitForFunction(() => document.documentElement.lang === 'en' && window.__app && window.__app.app, null, { timeout: 120000 });
-    await p.evaluate(() => window.__app.ready);
-    let d = await p.evaluate(() => ({ lang: document.documentElement.lang, ch: window.__app.app.chapter.id, kicker: document.querySelector('.kicker').textContent, h2: document.querySelector('article.chapter h2').textContent, stored: localStorage.getItem('engine-gearshift.lang'), sw: [...document.querySelectorAll('.lang-switch button')].map(b => b.textContent + ':' + b.getAttribute('aria-pressed')).join(' ') }));
-    check('language: click EN reloads in English on the same chapter', d.lang === 'en' && d.ch === 'spojka' && /^Chapter 06/.test(d.kicker) && d.h2 === 'Flywheel and Clutch' && d.sw === 'CZ:false EN:true', JSON.stringify(d));
     await p.click('.lang-switch button[data-lang=cz], .lang-switch button[data-lang=cs]');
     await p.waitForFunction(() => document.documentElement.lang === 'cs' && window.__app && window.__app.app, null, { timeout: 120000 });
     await p.evaluate(() => window.__app.ready);
+    let d = await p.evaluate(() => ({ lang: document.documentElement.lang, ch: window.__app.app.chapter.id, kicker: document.querySelector('.kicker').textContent, h2: document.querySelector('article.chapter h2').textContent, stored: localStorage.getItem('engine-gearshift.lang'), sw: [...document.querySelectorAll('.lang-switch button')].map(b => b.textContent + ':' + b.getAttribute('aria-pressed')).join(' ') }));
+    check('language: click CZ reloads in Czech on the same chapter', d.lang === 'cs' && d.stored === 'cs' && d.ch === 'spojka' && /^Kapitola 06/.test(d.kicker) && d.h2 === 'Setrvačník a spojka' && d.sw === 'CZ:true EN:false', JSON.stringify(d));
+    await p.click('.lang-switch button[data-lang=en]');
+    await p.waitForFunction(() => document.documentElement.lang === 'en' && window.__app && window.__app.app, null, { timeout: 120000 });
+    await p.evaluate(() => window.__app.ready);
     d = await p.evaluate(() => ({ lang: document.documentElement.lang, ch: window.__app.app.chapter.id, kicker: document.querySelector('.kicker').textContent, h2: document.querySelector('article.chapter h2').textContent, stored: localStorage.getItem('engine-gearshift.lang') }));
-    check('language: click CZ returns to Czech on the same chapter', d.lang === 'cs' && d.ch === 'spojka' && /^Kapitola 06/.test(d.kicker) && d.h2 === 'Setrvačník a spojka', JSON.stringify(d));
+    check('language: click EN returns to English on the same chapter', d.lang === 'en' && d.stored === 'en' && d.ch === 'spojka' && /^Chapter 06/.test(d.kicker) && d.h2 === 'Flywheel and Clutch', JSON.stringify(d));
     await p.context().close();
   }
 

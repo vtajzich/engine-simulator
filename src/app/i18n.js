@@ -1,4 +1,4 @@
-// Language selection: ?lang=en|cs (this page load only) > localStorage > Czech. Read once at module load.
+// Language selection: ?lang=en|cs (this page load only) > localStorage > English. Read once at module load.
 const KEY = 'engine-gearshift.lang';
 export const CHAPTER_KEY = 'engine-gearshift.chapter';
 const valid = l => (l === 'en' || l === 'cs' ? l : null);
@@ -6,7 +6,7 @@ const valid = l => (l === 'en' || l === 'cs' ? l : null);
 function detect() {
   try { const q = valid(new URLSearchParams(location.search).get('lang')); if (q) return q; } catch { /* no location */ }
   try { const s = valid(localStorage.getItem(KEY)); if (s) return s; } catch { /* storage blocked */ }
-  return 'cs';
+  return 'en';
 }
 
 export const lang = detect();

@@ -4,7 +4,7 @@ An interactive 3D explanation of a four-stroke inline four-cylinder engine (DOHC
 clutch and a longitudinal three-shaft five-speed synchronized gearbox with reverse.
 All geometry is procedural (Three.js) and derived from a single file of dimensions, `src/spec.js`.
 
-**Live demo:** <https://vtajzich.github.io/engine-simulator/> (Czech by default; add `?lang=en` or use the CZ / EN switch)
+**Live demo:** <https://vtajzich.github.io/engine-simulator/> (English by default; add `?lang=cs` or use the CZ / EN switch for Czech)
 
 ## Running
 
@@ -25,7 +25,7 @@ Every push to `main` is tested, built and published to GitHub Pages by `.github/
 | Clutch assistant | on: an automatic driver operates the clutch (pulling away even without throttle, declutching when braking to a stop, starting with a gear selected); off: you shift yourself and the model shows what goes wrong |
 | Slow motion | 1× to 1/500. **"rotation only"** (default): the mechanism turns slowly, but the pedals, starter and shifting respond in real time. **"full time"**: everything is really slowed down (chapters Synchronization and Reverse) |
 | View | mouse (orbit, pan, zoom), housing modes: Transparent / Section / Solid / Hidden |
-| Language | **CZ / EN** switch in the header of the right panel (or `?lang=en` in the address); the choice is remembered |
+| Language | **CZ / EN** switch in the header of the right panel (English by default; `?lang=cs` in the address for Czech); the choice is remembered |
 
 The chapter "The Four Strokes" shows, in a transverse section through the cylinder, the intake of the mixture, ignition
 with a spreading flame front, and the exhaust of the burnt gases. The chapter "Flywheel and Clutch" colours the engine

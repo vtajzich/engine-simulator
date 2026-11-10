@@ -227,7 +227,7 @@ async function boot() {
   return app;
 }
 
-// static text of index.html (Czech by default) follows the selected language
+// static text of index.html (English by default) follows the selected language
 document.title = ui.docTitle;
 document.querySelector('meta[name="description"]')?.setAttribute('content', ui.docDescription);
 document.querySelector('#loading .loading-title').textContent = ui.loading;
