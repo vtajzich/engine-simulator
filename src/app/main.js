@@ -9,6 +9,7 @@ import { createHighlight } from './highlight.js';
 import { createLabels } from './labels.js';
 import { createCaps } from './caps.js';
 import { createGapMarks } from './gapmarks.js';
+import { createClutchLink } from './clutchLink.js';
 import { createPicking } from './picking.js';
 import { createInput } from './input.js';
 import { createLoop } from './loop.js';
@@ -63,6 +64,7 @@ async function boot() {
   app.caps = createCaps({ index, scene, plane: app.housing.plane, onChange: () => scene.markDirty() });
   // in a section with caps the clutch cover is drawn dark so that the gaps between the clutch parts read as gaps
   app.gapMarks = createGapMarks({ scene, host: stage });
+  app.clutchLink = createClutchLink({ app, scene, host: stage });
   app.updateCaps = () => {
     const on = !!app.chapter?.caps && app.housing.mode === 'cut' && !app.section;
     app.caps.setActive(on);
@@ -77,6 +79,7 @@ async function boot() {
   app.reset = () => {
     newSim();
     Object.assign(app.user, { throttle: 0, clutchPedal: 0, brake: 0, lever: 'N', ignition: true }); app.stallFlag = false; app.ignitionT = -1;
+    app.resetFlash?.();
     app.poseDirty = true; app.emit('inputs'); app.emit('stateReset');
   };
   app.setInputs = o => { Object.assign(app.user, o); app.emit('inputs'); };
@@ -173,6 +176,7 @@ async function boot() {
     app.view = v?.id ?? null;
     app.setHousing(v?.housing ?? ch?.housing ?? 'ghost');
     app.setSection(v?.section ?? null);
+    if (v?.labels) app.labels.set(v.labels); else if (ch?.views?.some(x => x.labels)) app.labels.set(ch.labels ?? []);   // per-view label sets
     app.flyTo(fitCamera(v?.camera ?? ch?.camera, v?.fit), instant ? 0 : 1.3);
     app.poseDirty = true;
     app.emit('view', v);
@@ -181,7 +185,7 @@ async function boot() {
   app.setChapter = (id, { instant = false } = {}) => {
     const ch = chapters.find(c => c.id === id) ?? chapters[0];
     app.chapter = ch;
-    app.setPaused(false);
+    app.setPaused(false); app.resetFlash?.();
     ch.setup?.(app);
     app.highlight.setFocus(ch.focus);
     // gas / spark of cylinders outside the chapter focus are hidden (a section would show them through the focused cylinder)

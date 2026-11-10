@@ -1,4 +1,6 @@
 import { poseFromState } from '../kin/pose.js';
+import { sparkAdvanceDeg } from '../kin/ignition.js';
+import { mod } from '../kin/derive.js';
 import { ui } from './content/index.js';
 
 /** Frame loop: input → driver → sim → pose → assembly → render. */
@@ -30,8 +32,28 @@ export function createLoop(app) {
     }
   }
 
+  // Spark flash hold: the pose flash (12 crank degrees) is shorter than a frame at real speed, so a spark that happened
+  // since the previous frame keeps the flash visible for FLASH_HOLD_MS of wall-clock time. Only the pose is changed.
+  const FLASH_HOLD_MS = 70;
+  let prevPsi = null, tSpark = [];
+  app.resetFlash = () => { prevPsi = null; tSpark = []; };
+  function holdFlash(pose, state) {
+    const now = performance.now(), psiS = 720 - sparkAdvanceDeg(state.engine.running ? state.engine.throttleEff : 0);
+    pose.cylinders.forEach((c, i) => {
+      c.flashAngle = c.flash ?? 0;                 // angle-only value: drives the rotor arc, which is never held
+      if (prevPsi) {
+        const d = mod(c.psiDeg - prevPsi[i], 720);
+        if (state.engine.running && d > 0 && d < 360 && mod(psiS - prevPsi[i], 720) < d) tSpark[i] = now;
+      }
+      if ((c.flash ?? 0) > 0) tSpark[i] = now;
+      if (tSpark[i] != null) c.flash = Math.max(c.flash ?? 0, Math.max(0, 1 - (now - tSpark[i]) / FLASH_HOLD_MS));
+    });
+    prevPsi = pose.cylinders.map(c => c.psiDeg);
+  }
+
   function updatePose() {
     app.pose = poseFromState(app.sim.state);
+    if (!app.paused) holdFlash(app.pose, app.sim.state); else prevPsi = null;
     app.assembly.update(app.pose);
     app.highlight.setFlow(app.pose.flow);
     app.labels.update();
@@ -65,6 +87,7 @@ export function createLoop(app) {
     if (app.labels.on) { app.labels.update(); scene.markDirty(); }
     scene.updateTween(Math.min(0.25, raw));
     scene.controls.update();
+    app.clutchLink.update(app.paused ? 0 : rdt);
     uiAcc += rdt;
     if (uiAcc > 0.066) { uiAcc = 0; refreshUi(); }
     if (scene.consumeDirty()) { const t0 = performance.now(); scene.renderer.render(scene.scene, scene.camera); app.stats.renderMs = performance.now() - t0; }

@@ -153,6 +153,7 @@ export const ui = {
   simplIntro: 'The model is mechanically faithful in its kinematics (angles, strokes, ratios, firing order), but several things are deliberately simplified or estimated:',
   partBody: ' · body ', noDescription: 'There is no description for this part yet.',
   clutchKey: 'Space', rpm: 'rpm', gapMark: 'gap ',
+  clutchLink: { engine: 'engine', shaft: 'disc + input shaft', locked: 'COUPLED · friction grips', slip: 'SLIPPING', open: 'DISCONNECTED · gap' },
   langSwitch: 'Language', langCs: 'Czech', langEn: 'English', panelToggle: 'Panel',
   diag: {
     strokes: { intake: 'Intake', compression: 'Compression', power: 'Power', exhaust: 'Exhaust', combustion: 'Combustion' },
@@ -259,17 +260,25 @@ export const chapterText = {
       'The power strokes of the four cylinders follow each other in the order <b>1 – 3 – 4 – 2</b>. The cycle lasts 720° and there are four cylinders, so ignition occurs <b>every 180°</b> and the power strokes follow one another without gaps – the engine runs more smoothly than a single-cylinder.',
       'Pistons 1 and 4 (like 2 and 3) move together, but they are <b>never in the same stroke</b>: when cylinder 1 fires at TDC, cylinder 4 is finishing its exhaust and starting its intake (both of its valves are open – overlap). Alternating non-adjacent cylinders spreads the load along the crankshaft and evens out the filling of the cylinders from the common intake manifold.',
       'Cylinder 1 fires at 0°, cylinder 3 at 180°, cylinder 4 at 360° and cylinder 2 at 540° of crankshaft angle.',
+      '<b>What decides which spark plug gets the spark:</b> the <b>distributor</b> on the rear end of the intake camshaft. Its <b>rotor</b> turns with the camshaft, i.e. at half the crankshaft speed – one turn per 720° cycle. The ignition coil sends the high voltage through the centre lead to the middle of the cap, the rotor carries it to one of four contacts and the spark jumps a small gap (0.8 mm) to the contact, from where a lead takes it to the spark plug. The contacts are spaced 90° apart around the cap in the order <b>1 – 3 – 4 – 2</b> in the direction of rotation.',
+      'Spark advance (10–30° before TDC) shifts the moment of the spark by 5–15° of rotor rotation; that is why the rotor has a wide tip that overlaps the contact over the whole range.',
     ),
     notice: [
       'The vertical line in the diagram is the instantaneous crankshaft angle (0–720°).',
       'The colored bands are the strokes of each cylinder; the thin strips below them are the opening periods of the intake (blue) and exhaust (orange) valves.',
       'The yellow mark is the spark plug spark – it precedes the start of the power stroke.',
       'Cylinder 1 is at the front, next to the timing belt; cylinder 4 is next to the flywheel.',
+      'Switch the housings: with “Hidden”, “Ghost” and “Section” the distributor cap is transparent and the rotor is visible; with “Solid” the cap is opaque.',
+      'The flash at the spark plug, on the lead and between the rotor and the contact always belongs to the same cylinder. The spark is visible even without the “Gas” layer.',
     ],
+    legend: ['spark: rotor → cap contact → lead → spark plug', 'high-voltage leads'],
+    views: { pisty: 'Pistons and strokes', zapalovani: 'Distributor and spark plugs' },
   },
   spojka: {
     title: 'Flywheel and Clutch',
     html: P(
+      '<b>The path of the force:</b> the yellow dashed trace shows the path of the torque. From the crankshaft it goes into the flywheel and splits into two branches to the <b>two friction faces</b>: directly from the flywheel face, and the long way round through the clutch cover and the pressure plate. Through friction it passes into the disc linings, through the damper springs into the hub and through the splines onto the input shaft. <b>There is no other connection between the engine and the gearbox</b> – the front journal of the input shaft just turns freely in the pilot bearing in the crankshaft.',
+      'When the pedal is pressed, both friction faces move apart (in the picture a dark gap, enlarged so that it can be seen – in reality 0.9 mm) and the trace ends at them: the engine keeps running, the disc with the input shaft coasts down and stops.',
       'The <b>flywheel</b> is bolted to the rear flange of the crankshaft and has a ring gear on its circumference for the starter (132 teeth). The <b>clutch cover</b> with the <b>pressure plate</b> and the <b>diaphragm spring</b> is attached to the flywheel with six bolts – all of this turns with the engine (<b style="color:#ff9a2a">orange</b>).',
       'Between the flywheel and the pressure plate is the <b>clutch disc</b>, splined on the gearbox input shaft (21 splines) – it belongs to the gearbox (<b style="color:#4fa8ff">blue</b>). The spring presses it against the flywheel by friction. The disc has torsion springs (6 pcs) that damp shocks (only drawn in the simulation).',
       '<b>When the pedal is pressed</b>, the fork moves the release bearing by 9.8 mm (including 1.5 mm of free play) toward the engine. The bearing pushes on the ends of the diaphragm spring fingers, the spring tilts around the support ring and its outer edge moves in the <b>opposite</b> direction – the pressure plate pulls away from the disc by only <b>1.8 mm</b> (lever ≈ 4.6 : 1). This frees the disc: a gap of 0.9 mm appears on each side.',
@@ -277,15 +286,15 @@ export const chapterText = {
       'The <b>“Friction-face detail”</b> view is a section just above the upper edge of the friction ring: with the pedal released the surfaces are clamped together (0.05 mm), with the pedal pressed both gaps open and you can see the finger tilting on the support ring.',
     ),
     notice: [
-      'Try “Press clutch and watch the disc”: in neutral, after disengagement the disc and input shaft slow down and <b>stop</b> (watch the damper springs and the disc hub), while the flywheel and cover keep running.',
+      'Try “Show the disconnection”: first gear is engaged and the car stands on the brake – the flywheel turns, the disc and input shaft stand still (the tag reads 0 rpm, the shaft splines and the constant-mesh gear teeth do not move). Then “Release the brake”: the clutch slips for a moment and engages.',
       'The bearing moves toward the engine, but the spring edge and the pressure plate move away from the engine.',
       'The first ≈ 15 % of the pedal travel is only free play (1.5 mm at the bearing) – the clutch still holds the full torque.',
       'The housing (clutch cover, bellhousing) is transparent; switching to “Section” shows the cross-section, and you can zoom in with the “Friction-face detail” button.',
       'The diaphragm spring is drawn in the model as 18 rigid fingers (simplification).',
     ],
-    legend: ['engine side: flywheel (orange), pressure plate (dark orange), cover (light), spring fingers (yellow)', 'gearbox side: clutch disc, input shaft', 'release mechanism: bearing, fork'],
+    legend: ['engine side: flywheel (orange), pressure plate (dark orange), cover (light), spring fingers (yellow)', 'gearbox side: clutch disc, input shaft', 'release mechanism: bearing, fork', 'path of the torque (the dashes run at the speed of rotation)'],
     views: { celek: 'Overview', detail: 'Friction-face detail' },
-    actions: ['Press clutch and watch the disc', 'Press clutch', 'Release clutch'],
+    actions: ['Show the disconnection (1st gear, standing)', 'Release the brake – pull away', 'Press clutch and watch the disc', 'Press clutch', 'Release clutch'],
   },
   prevodovka: {
     title: 'Gearbox Layout',
@@ -369,7 +378,12 @@ export const glossary = [
   { title: 'Engine block', match: ['block'], text: 'A cast-iron or aluminum housing with the cylinder bores (86 mm) and the seats of the five crankshaft main bearings. It carries the whole drivetrain and guides the coolant.' },
   { title: 'Cylinder head', match: ['head'], text: 'Closes the cylinders from above and forms the combustion chamber (pent-roof, with the spark plug in the middle). It carries the valve seats and guides, the camshafts and the bucket tappets.' },
   { title: 'Camshaft bearings', match: ['camCaps', 'camCap'], text: 'Caps that hold the camshafts down against the head. The shaft turns in them on an oil film.' },
-  { title: 'Spark plug', match: ['sparkPlug'], text: 'A spark jumps across the electrodes and ignites the compressed mixture. Ignition occurs before top dead center (spark advance), because combustion takes tens of crankshaft degrees.' },
+  { title: 'Spark plug', match: ['sparkPlug'], text: 'A spark jumps across the electrodes and ignites the compressed mixture. Ignition occurs before top dead center (spark advance), because combustion takes tens of crankshaft degrees. The plug sits in the centre of the chamber between the camshafts.' },
+  { title: 'Distributor rotor', match: ['ignRotor'], text: 'A rotating contact on the rear end of the intake camshaft; it turns with it, one turn per 720° cycle. It carries the high voltage from the centre of the cap to the four contacts in turn. Its tip is wide so that it overlaps the contact at every spark advance.' },
+  { title: 'Distributor', match: ['ignDistributor'], text: 'The housing on the rear end of the head that carries the cap and in which the rotor turns. It distributes the ignition voltage among the four cylinders in the order 1–3–4–2.' },
+  { title: 'Distributor cap', match: ['ignCap'], text: 'A plastic cap with a central carbon contact and four contacts around the circumference (90° apart). The spark jumps from the rotor tip across a 0.8 mm gap to the contact. In the model it is transparent (except in the “Solid” mode) so that the rotor can be seen.' },
+  { title: 'Ignition coil', match: ['ignCoil'], text: 'A transformer that turns the on-board voltage into tens of thousands of volts. The centre lead connects it to the middle of the distributor cap.' },
+  { title: 'Spark plug lead', match: ['ignLead', 'ignBoot'], text: 'A high-voltage lead runs from the distributor cap contact to the boot on the spark plug. The leads in the model are illustrative.' },
   { title: 'Crankshaft', match: ['crankshaft'], text: 'Converts the linear motion of the pistons into rotation. It has five main journals, four crankpins (in one plane – pistons 1+4 and 2+3 move together) and counterweights that balance the centrifugal forces.' },
   { title: 'Crankshaft pulley', match: ['crankSprocket'], text: 'A toothed pulley with 18 teeth; through the toothed belt it drives the camshaft pulleys with 36 teeth (ratio 1 : 2).' },
   { title: 'Flywheel', match: ['flywheel'], text: 'A heavy disc on the rear flange of the crankshaft. It smooths out the speed fluctuations between firing events, its face is the friction surface of the clutch, and on its circumference it carries the starter ring gear (132 teeth).' },
@@ -390,6 +404,7 @@ export const glossary = [
   { title: 'Pressure plate', match: ['pressurePlate'], text: 'A cast-iron ring that the spring presses against the clutch disc. When the pedal is pressed it pulls away from the disc by 1.8 mm.' },
   { title: 'Diaphragm spring finger', match: ['finger', 'diaphragm'], text: 'The diaphragm spring has radial fingers (18 rigid levers in the model). The bearing pushes on their ends, the spring tilts around the support ring and its rim releases the pressure plate.' },
   { title: 'Clutch disc', match: ['clutchDisc'], text: 'A disc with friction linings, splined on the input shaft. It is not bolted: it is clamped by friction between the flywheel and the pressure plate. Torsion springs damp shocks.' },
+  { title: 'Pilot bearing', match: ['pilotBearing'], text: 'A small bearing on the crankshaft axis that supports the front journal of the gearbox input shaft. It transmits no torque – with the clutch disengaged the shaft turns in it freely relative to the engine.' },
   { title: 'Release bearing', match: ['releaseBearing'], text: 'A ball bearing on the guide tube. When the pedal is pressed, the fork moves it 9.8 mm toward the engine and it pushes on the spring fingers.' },
   { title: 'Release fork', match: ['releaseFork'], text: 'A lever mounted in the bellhousing, operated by the pedal (hydraulically or by cable). It moves the release bearing.' },
   { title: 'Bellhousing', match: ['bellhousing'], text: 'A rigid cover between the engine and the gearbox. It protects the clutch and carries the release fork.' },
@@ -426,6 +441,7 @@ export const simplifications = [
   'The engine torque curve is simplified (190 N·m at the peak, idle 800, rev limiter 7500 rpm), the torsion damper of the clutch disc is not simulated and the inertias are lumped into three bodies.',
   'The valve timing is estimated around a sourced duration of 248° (10° / 58° / 58° / 10°); the valve clearance of 0.2 mm and the travel of the disc and the release bearing are estimates.',
   'Oil, needle bearings, seals, circlips and detents are missing, and the interlocking of the shift rails is replaced by logic (at any moment at most one rail is out of neutral).',
+  'The ignition coil is external (some versions of the engine integrate the coils); no breaker or igniter is shown, the spark advance is computed (it is not a mechanical advance unit) and the high-voltage leads are illustrative.',
   'The dimensions are derived from the Toyota 3S-GE engine (86 × 86 mm) and the Toyota W58 gearbox; many real dimensions are not publicly available and are estimated.',
 ];
 
@@ -438,6 +454,7 @@ export const partLabels = {
   'Přítlačný kotouč': 'Pressure plate',
   'Spojková lamela': 'Clutch disc',
   'Vypínací ložisko': 'Release bearing',
+  'Pilotní ložisko': 'Pilot bearing',
   'Vypínací vidlice': 'Release fork',
   'Zvon spojky': 'Bellhousing',
   'Jazýček talířové pružiny': 'Diaphragm spring finger',
@@ -487,6 +504,13 @@ for (let n = 1; n <= 4; n++) {
   partLabels[`Zapalovací svíčka ${n}`] = `Spark plug ${n}`;
   partLabels[`Plyn ve válci ${n}`] = `Cylinder gas ${n}`;
   partLabels[`Jiskra ${n}`] = `Spark ${n}`;
+  partLabels[`Koncovka kabelu svíčky ${n}`] = `Plug boot ${n}`;
+  partLabels[`Kabel svíčky ${n}`] = `Plug lead ${n}`;
+  partLabels[`Jiskra zapalování ${n}`] = `Ignition spark ${n}`;
   partLabels[`Synchronizační kroužek ${n}`] = `Blocker ring ${n}`;
 }
+Object.assign(partLabels, {
+  'Palec rozdělovače': 'Distributor rotor', 'Rozdělovač': 'Distributor', 'Víko rozdělovače': 'Distributor cap', 'Zapalovací cívka': 'Ignition coil',
+  'Kabel od cívky': 'Coil lead', 'Jiskra – přívod od cívky': 'Coil lead spark',
+});
 partLabels['Synchronizační kroužek 5'] = 'Blocker ring 5';   // 5th-gear synchronizer ring (also produced by src/model/shift.js)

@@ -8,6 +8,7 @@ const SHELL_PARTS = ['clutchCover'];
 export function indexModel(assembly) {
   const meshes = [];          // { mesh, part, body, housing, noCollide, orig }
   const parts = new Map();    // id -> Group
+  const capShells = [];       // distributor cap shells: transparent in every mode but solid
   assembly.root.traverse(o => {
     if (o.userData?.part) parts.set(o.userData.part.id, o);
     if (!o.isMesh) return;
@@ -20,9 +21,10 @@ export function indexModel(assembly) {
       o.material.customProgramCacheKey = () => 'shellDark';
       o.userData.housing = true;
     }
+    if (o.userData.capShell) { o.material = o.material.clone(); capShells.push(o); }   // display rule set by housing.js
     meshes.push({
       mesh: o, part, body: part?.body ?? null,
-      housing: !!o.userData.housing, noCollide: !!o.userData.noCollide, orig: o.material,
+      housing: !!o.userData.housing, capShell: !!o.userData.capShell, noCollide: !!o.userData.noCollide, orig: o.material,
     });
   });
   const housingMaterials = new Set();
@@ -30,7 +32,7 @@ export function indexModel(assembly) {
   const triangles = meshes.reduce((n, m) => {
     const g = m.mesh.geometry; return n + (g.index ? g.index.count : g.attributes.position.count) / 3;
   }, 0);
-  return { meshes, parts, housingMaterials, triangles };
+  return { meshes, parts, housingMaterials, capShells, triangles };
 }
 
 const box = new THREE.Box3();

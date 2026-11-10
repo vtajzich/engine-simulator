@@ -23,7 +23,9 @@ function proxy(id, r, x0, x1) {
   g.add(m); return g;
 }
 root.add(proxy('quillProxy', SPEC.clutch.quill.od / 2, SPEC.clutch.quill.frontX, SPEC.gearbox.walls.front[0]));
-root.add(proxy('shaftProxy', 12.5, 340, 520));
+const SH = SPEC.gearbox.shafts;   // the input shaft: Ø15 pilot inside the crank, Ø25 from the spline section on
+root.add(proxy('shaftPilotProxy', SH.inputPilotDiameter / 2, SH.inputPilotX[0], SH.inputSplineX[0]));
+root.add(proxy('shaftProxy', SH.inputDiameter / 2, SH.inputSplineX[0], 520));
 
 const assembly = { root, update(p) { mod.update(p); root.updateMatrixWorld(true); } };
 const pose = (pedal, crank = 0, input = 0) => poseAt({ crank, input, clutchPedal: pedal });
@@ -42,9 +44,9 @@ describe('clutch module', () => {
     expect(new Set(own)).toEqual(allowed);
     const noCol = []; let meshes = 0;
     mod.group.traverse(o => { if (o.isMesh) { meshes++; if (o.userData.noCollide) noCol.push(o); } });
-    expect(noCol.length).toBe(1);                       // only the visual drive straps
-    expect(noCol[0].parent.userData.part.id).toBe('pressurePlate');
-    expect(bodies.get('crank').partIds.sort()).toEqual(['clutchCover', 'flywheel']);
+    expect(noCol.length).toBe(2);                       // only the visual drive straps and the disc-hub index mark
+    expect(noCol.map(o => o.parent.userData.part.id).sort()).toEqual(['clutchDisc', 'pressurePlate']);
+    expect(bodies.get('crank').partIds.sort()).toEqual(['clutchCover', 'flywheel', 'pilotBearing']);
     expect(bodies.get('bellhousing').static).toBe(true);
     let housing = false; mod.group.traverse(o => { if (o.isMesh && o.userData.housing) housing = true; });
     expect(housing).toBe(true);
@@ -63,6 +65,18 @@ describe('clutch module', () => {
     const res = sweep(assembly, bodies, poses);
     expect(res.samples).toBe(126);
     expect(res.collisions.size, formatCollisions(res)).toBe(0);
+  });
+
+  it('pilot bearing is a crank-body part inside radius 13.1 and x 361.9 ... 372.1', () => {
+    at(0);
+    const part = collectBodies(root, { cache: false }).get('crank').partIds.includes('pilotBearing');
+    expect(part).toBe(true);
+    let g = null; mod.group.traverse(o => { if (o.userData.part?.id === 'pilotBearing') g = o; });
+    expect(g.userData.part.body).toBe('crank');
+    const bb = new THREE.Box3().setFromObject(g);
+    expect(Math.max(Math.abs(bb.min.y), bb.max.y, Math.abs(bb.min.z), bb.max.z)).toBeLessThanOrEqual(13.1);
+    expect(bb.min.x).toBeGreaterThanOrEqual(361.9);
+    expect(bb.max.x).toBeLessThanOrEqual(372.1);
   });
 
   it('fork keeps >= 2 mm from the quill (margin proxy radius 20)', () => {

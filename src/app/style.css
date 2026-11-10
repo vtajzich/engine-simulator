@@ -240,3 +240,14 @@ input[type=range]::-moz-range-thumb { width: 10px; height: 16px; background: #e9
 .gapmark::before { content: ''; position: absolute; top: -7px; border: 5px solid transparent; border-bottom-color: var(--amber); border-top: 0; }
 .gapmark.l::before { right: 1px; }
 .gapmark.r::before { left: 1px; }
+.clink .under { fill: none; stroke: #0b0f14; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
+.clink .dash { fill: none; stroke-width: 4; stroke-dasharray: 12 9; stroke-linecap: round; stroke-linejoin: round; }
+.clink .dash.e { stroke: #ffd23f; }
+.clink .dash.d { stroke: #e8f6ff; }
+.clink .dash.d.stopped { stroke: #7f8a96; }
+.clink line.slip { animation: clink-flicker .28s steps(2, jump-none) infinite; }
+@keyframes clink-flicker { from { opacity: .45; } to { opacity: 1; } }
+.linktag { position: absolute; z-index: 4; display: none; transform: translate(-50%, -100%); padding: 2px 8px; background: rgba(8,10,13,.88); border: 1px solid var(--amber); color: #fff; font: 600 11px var(--mono); white-space: nowrap; pointer-events: none; }
+.linktag.locked { border-color: #3fbf6a; color: #8ff0ac; }
+.linktag.slip { border-color: #ff5a36; color: #ff9a80; }
+.linktag.open { border-color: #7f9bb5; color: #bcd3e6; }

@@ -12,7 +12,7 @@ export function createHighlight(index, onChange) {
   let double = false;
   const sideFor = (m, clipped, src) => (clipped || double ? THREE.DoubleSide : baseSide.get(src) ?? THREE.FrontSide);
 
-  const SECTION = ['flywheel', 'pressurePlate', 'clutchDisc', 'finger', 'releaseBearing'];
+  const SECTION = ['flywheel', 'pilotBearing', 'pressurePlate', 'clutchDisc', 'finger', 'releaseBearing'];
   const sectioned = part => !!clip && SECTION.some(p => part.id.startsWith(p));
   const variant = (orig, kind, clipped) => {
     const key = orig.uuid + kind + (clipped ? 'c' : '');
@@ -36,7 +36,7 @@ export function createHighlight(index, onChange) {
 
   function apply() {
     for (const e of index.meshes) {
-      if (e.housing || e.noCollide || !e.part) continue;
+      if (e.housing || e.capShell || e.noCollide || !e.part) continue;   // the cap's opacity belongs to housing.js
       let kind = 'orig';
       if (selected && selected(e.part)) kind = 'sel';
       else if (!inFocus(e)) kind = 'dim';

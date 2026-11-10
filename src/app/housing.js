@@ -26,6 +26,11 @@ export function createHousing(index, onChange) {
       m.clippingPlanes = mode === 'cut' ? [plane] : null;
       m.needsUpdate = true;
     }
+    // the distributor cap is never hidden or clipped: opaque when solid, otherwise see-through so the rotor shows
+    for (const c of index.capShells) {
+      const m = c.material, solid = mode === 'solid';
+      m.transparent = !solid; m.opacity = solid ? 1 : 0.22; m.depthWrite = solid; m.needsUpdate = true;
+    }
     for (const e of index.meshes) if (e.housing) e.mesh.visible = mode !== 'hidden';
     onChange?.();
   }

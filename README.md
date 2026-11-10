@@ -24,7 +24,14 @@ npm run build      # produkční build do dist/
 | Jazyk | přepínač **CZ / EN** v záhlaví pravého panelu (nebo `?lang=en` v adrese); volba se pamatuje |
 
 Kapitola „Čtyři doby“ ukazuje v příčném řezu válcem nasávání směsi, zážeh s šířícím se čelem plamene a výfuk
-spalin; kapitola „Setrvačník a spojka“ má barevně odlišenou stranu motoru a převodovky a detail třecích ploch.
+spalin; kapitola „Setrvačník a spojka“ má barevně odlišenou stranu motoru a převodovky, detail třecích ploch a žlutou
+stopu točivého momentu (kudy síla jde z klikového hřídele do vstupního hřídele a kde se při sešlápnutí pedálu přeruší;
+přední čep vstupního hřídele se v pilotním ložisku jen volně otáčí).
+
+Zapalování (kapitola „Pořadí zapalování“, pohled „Rozdělovač a svíčky“): palec rozdělovače na sací vačce přivádí
+jiskru ke čtyřem kontaktům víka v pořadí 1-3-4-2. Jiskra je vidět vždy – na svíčce, na kabelu i mezi palcem a kontaktem –
+i při skrytých skříních a bez vrstvy „Plyn“; při reálné rychlosti ji záblesk drží 120 ms, aby byl při snímkování vidět.
+Víko rozdělovače je průhledné ve všech režimech skříní kromě „Plné“, takže je vidět palec.
 
 Jedenáct kapitol v pravém panelu provede klikovým mechanismem, čtyřmi dobami, rozvodem, pořadím zapalování,
 spojkou, uspořádáním převodovky, tokem výkonu, synchronizací, zpátečkou a volnou jízdou.
@@ -53,7 +60,10 @@ npm run verify:visual    # jen headless Chrome nad dist/ (vyžaduje npm run buil
 4. **Build** aplikace a **vizuální kontrola** (`verify/visual.mjs`) – headless Chrome projde všechny kapitoly,
    hlídá chyby v konzoli a prázdné plátno, vyzkouší řazení, zhasnutí motoru a výběr dílu. Ovládání se ověřuje
    **skutečnými kliknutími a klávesami v reálném čase** (motor zhasne i nastartuje do 2,5 s, jednička bez plynu se
-   rozjede bez zhasnutí, brzdění do zastavení motor neudusí); snímky v `verify/out/`.
+   rozjede bez zhasnutí, brzdění do zastavení motor neudusí). Zapalování: koncovky kabelů svíček jsou ze shora vidět
+   při skrytých i řezaných skříních; víko rozdělovače je průhledné (i v kapitole s výběrem dílů) a v režimu „Plné“
+   neprůhledné; záblesk odpovídá úhlu kliky (pozastaveno), za chodu přichází v pořadí 1-3-4-2, při reálné rychlosti ho
+   vidí všechny válce a po vypnutí motoru zhasne. Snímky v `verify/out/`.
 
 ## Struktura
 

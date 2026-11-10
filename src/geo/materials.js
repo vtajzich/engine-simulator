@@ -19,6 +19,9 @@ const DEFS = {
   gearB:      { color: 0x8f9aa6, metalness: 0.95, roughness: 0.3 },
   shiftSteel: { color: 0x6f7780, metalness: 0.85, roughness: 0.4 },
   knob:       { color: 0x1c1c1f, metalness: 0.2, roughness: 0.6 },
+  rotorPlastic: { color: 0xe9e2cf, metalness: 0.0, roughness: 0.6 },   // distributor rotor
+  capShell:   { color: 0x8a3324, metalness: 0.05, roughness: 0.55 },   // distributor cap
+  htLead:     { color: 0xd62828, metalness: 0.0, roughness: 0.6 },     // HT leads and plug boots
 };
 const cache = new Map();
 

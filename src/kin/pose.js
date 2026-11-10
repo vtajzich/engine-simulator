@@ -73,7 +73,7 @@ export function poseFromState(state) {
       if (run) return { psiDeg, ...gas };
       const stroke = strokeOf(psiDeg);
       const phase = stroke === 'power' ? 'expansion' : stroke;
-      return { psiDeg, ...gas, phase, burn: 0, spark: false };
+      return { psiDeg, ...gas, phase, burn: 0, spark: false, flash: 0 };
     }),
     flow: new Set(state.flow),
   };

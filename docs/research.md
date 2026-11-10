@@ -161,6 +161,12 @@ Four throws in one plane: throws 1 and 4 at 0 deg, throws 2 and 3 at 180 deg. Pi
 
 ---
 
+## 2a. Zapalování / Ignition (distributor)
+
+- The 3S-GE generations 1-2 have a distributor. The Toyota repair manual installs it after aligning "the slit of the intake camshaft", i.e. it is driven by the intake camshaft [SRC, weak: https://www.manualslib.com/manual/1310366/Toyota-3s-Ge.html?page=436].
+- Model: the distributor sits coaxially on the rear (flywheel-side) end of the intake camshaft, 1:1 with the cam = half crank speed [EST]. The rotor is rigid on the cam; the cap terminals are centred on the rotor position at mid spark advance (20 deg BTDC), so the rotor tip stays within +-5 cam degrees of the terminal over the 10-30 deg advance range [MODEL].
+- External ignition coil with a centre HT lead into the cap [MODEL; some versions integrate the coil]. Terminal order around the cap = firing order 1-3-4-2.
+
 ## 3. FLYWHEEL AND CLUTCH
 
 ### 3.1 Component stack, front to back (engine -> gearbox)

@@ -18,6 +18,18 @@ const LOCAL = {
   fork: { zPivot: 105, zSlave: -95, yCentre: 27, yWidth: 6, padR: 3, padGap: 0.3, setback: 8, railT: 8,
           ballR: 6, cupIn: 7, cupOut: 9.5, stud: 4 },
   bell: { taperStartX: 400, taperEndX: 462, flange: 18 },
+  boltRho: 131, strapRho: 118,                                   // cover bolt circle, drive-strap radius
+  // pilot bearing in the flywheel centre hole around the input-shaft pilot; the bore is inputPilotDiameter / 2 + boreClearance
+  pilot: { outer: [11, 13], innerOuterRho: 9.5, boreClearance: 0.25, x: [362, 372], ballR: 1.55, ballRho: 10.25, balls: 8 },
+  indexMark: { len: 20, h: 1.0, w: 3.5, count: 6 },              // white stripes around the disc hub (visual only)
+};
+
+/** Radii / x of the torque path through the cover, used by the app's clutch-link overlay (src/app/clutchLink.js). */
+export const CLUTCH_PATH = {
+  boltRho: LOCAL.boltRho,
+  coverRho: (LOCAL.coverWallInner + SPEC.clutch.cover.outerRadius) / 2,        // middle of the cover wall
+  strapRho: LOCAL.strapRho,
+  coverRearX: (LOCAL.coverWallRearX + LOCAL.coverInnerX) / 2,                  // middle of the cover rear wall
 };
 
 const N_F = SPEC.clutch.diaphragm.fingers;
@@ -105,7 +117,7 @@ function buildCover(spec) {
     const a = i * 2 * Math.PI / c.bolts + Math.PI / c.bolts;
     const b = new THREE.CylinderGeometry(L.boltR, L.boltR, L.boltH, 6);
     b.rotateZ(-Math.PI / 2);
-    b.translate(x0 + t + L.boltH / 2 - 0.5, 131, 0);
+    b.translate(x0 + t + L.boltH / 2 - 0.5, L.boltRho, 0);
     b.rotateX(a);
     list.push(b);
   }
@@ -124,7 +136,7 @@ function buildPressurePlate(spec) {
   const straps = [];
   for (let i = 0; i < 3; i++) {
     const g = boxAt(1.5, 12, 30, st.plateRearX + 0.75, 0, 0);
-    g.translate(0, 118, 0);
+    g.translate(0, LOCAL.strapRho, 0);
     g.rotateX(i * 2 * Math.PI / 3);
     straps.push(g);
   }
@@ -174,7 +186,26 @@ function buildDisc(spec) {
     g.rotateX(i * 2 * Math.PI / ds.damperSprings + Math.PI / ds.damperSprings);
     springs.push(g);
   }
-  return [new THREE.Mesh(facings, mat('friction')), new THREE.Mesh(merge(list), mat('steel')), new THREE.Mesh(merge(springs), mat('steelDark'))];
+  const im = L.indexMark;
+  const marks = [];
+  for (let i = 0; i < im.count; i++) { const g = boxAt(im.len, im.h, im.w, xc, hr + im.h / 2, 0); g.rotateX(i * 2 * Math.PI / im.count); marks.push(g); }
+  const mark = new THREE.Mesh(merge(marks), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  mark.userData.noCollide = true;
+  return [new THREE.Mesh(facings, mat('friction')), new THREE.Mesh(merge(list), mat('steel')), new THREE.Mesh(merge(springs), mat('steelDark')), mark];
+}
+
+// Pilot bearing: sits in the flywheel centre hole around the Ø15 input-shaft pilot (the inner ring is modelled on the crank body)
+function buildPilotBearing(spec) {
+  const P = LOCAL.pilot, [x0, x1] = P.x, ri = spec.gearbox.shafts.inputPilotDiameter / 2 + P.boreClearance;
+  const ring = (r0, r1) => lathePoly([[r0, x0], [r1, x0], [r1, x1], [r0, x1], [r0, x0]], 64);
+  const list = [ring(P.outer[0], P.outer[1]), ring(ri, P.innerOuterRho)];
+  for (let i = 0; i < P.balls; i++) {
+    const b = new THREE.SphereGeometry(P.ballR, 16, 12);
+    b.translate((x0 + x1) / 2, P.ballRho, 0);
+    b.rotateX(i * 2 * Math.PI / P.balls);
+    list.push(b);
+  }
+  return new THREE.Mesh(merge(list), mat('polished'));
 }
 
 // Bearing local frame: x = 0 at the reference face f = bearingFaceX(pedal) (finger rear surface at the tip once free play is taken up)
@@ -262,6 +293,8 @@ export function buildClutch(spec = SPEC) {
 
   const flywheel = partGroup('flywheel', 'crank', 'Setrvačník');
   flywheel.add(buildFlywheel(spec));
+  const pilotBearing = partGroup('pilotBearing', 'crank', 'Pilotní ložisko');
+  pilotBearing.add(buildPilotBearing(spec));
   const cover = partGroup('clutchCover', 'crank', 'Štít spojky');
   cover.add(buildCover(spec));
   const plate = partGroup('pressurePlate', 'pressurePlate', 'Přítlačný kotouč');
@@ -288,12 +321,13 @@ export function buildClutch(spec = SPEC) {
     spin.add(pivot);
     spins.push(spin); pivots.push(pivot);
   }
-  group.add(flywheel, cover, plate, disc, bearing, fork, bell, ...spins);
+  group.add(flywheel, pilotBearing, cover, plate, disc, bearing, fork, bell, ...spins);
 
   const L = LOCAL.fork;
   function update(pose) {
     const rk = releaseKin(pose.clutchPedal, spec);
     flywheel.rotation.x = pose.crank;
+    pilotBearing.rotation.x = pose.crank;
     cover.rotation.x = pose.crank;
     plate.rotation.x = pose.crank;
     plate.position.x = rk.plateLift;

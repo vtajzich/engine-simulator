@@ -1,5 +1,6 @@
 import { SPEC } from '../spec.js';
 import { derive, rad, mod } from './derive.js';
+import { sparkAdvanceDeg, flashOf } from './ignition.js';
 
 const D = derive();
 const E = SPEC.engine;
@@ -27,8 +28,7 @@ export function gasState(psiDeg, throttle = 0.3) {
   const stroke = strokeOf(psi);
   const Vbdc = D.clearanceVolume + D.displacement;
   const pm = 0.35 + 0.60 * throttle;
-  const sa = E.sparkAdvanceDeg;
-  const adv = sa.idle + (sa.load - sa.idle) * throttle;
+  const adv = sparkAdvanceDeg(throttle);
   const psiS = 720 - adv;
   const EVO = D.valve.ex.openDeg;
 
@@ -58,5 +58,5 @@ export function gasState(psiDeg, throttle = 0.3) {
     pBar = 1.05 + (pm - 1.05) * s; tempK = 950 + (320 - 950) * s; phase = 'intake';
   }
   const since = mod(psi - psiS, 720);
-  return { stroke, phase, burn, pBar, tempK, spark: since < 4 };
+  return { stroke, phase, burn, pBar, tempK, spark: since < 4, flash: flashOf(since) };
 }

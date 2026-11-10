@@ -8,9 +8,11 @@ import {
   collectBodies, sweep, formatCollisions, bodiesIntersect, bodiesIntersectDisplaced, clearanceAlong,
   snapshotRigidity, rigidityViolations,
 } from '../../verify/collide.js';
-import { buildTopEnd } from '../../src/model/topEnd.js';
+import { buildTopEnd, LOCAL } from '../../src/model/topEnd.js';
 import { portFrame } from '../../src/geo/topGas.js';
 import { gasState, pistonCrownY, throwAngle } from '../../src/kin/engine.js';
+import { sparkCrankDeg, terminalAngle, rotorAngle } from '../../src/kin/ignition.js';
+import { buildLeadCurves, towerMouth, centreMouth } from '../../src/geo/topIgnition.js';
 
 const D = derive();
 const E = SPEC.engine;
@@ -368,5 +370,119 @@ describe('gas flow visuals', () => {
     root.traverse(o => { if (o.isInstancedMesh && /^gas/.test(o.name)) { inst += o.count; tris += o.count * o.geometry.attributes.position.count / 3; } });
     console.log(`gas instances ${inst}, triangles ${tris}`);
     expect(inst).toBeLessThanOrEqual(1500); expect(tris).toBeLessThan(60000);
+  });
+});
+
+// ───────────── ignition (docs/plan/Z1-ignition-model.md) ─────────────
+describe('ignition', () => {
+  const IG = E.ignition, ax = D.valve[IG.drivenBy].camAxis;
+  const camAxis = new THREE.Vector3(ax.x ?? 0, ax.y, ax.z);
+  const partOf = id => { let p = null; root.traverse(o => { if (o.userData.part?.id === id) p = o; }); return p; };
+  const meshesOf = id => { const out = []; partOf(id).traverse(o => o.isMesh && out.push(o)); return out; };
+  const wrapDeg = a => ((a % 360) + 540) % 360 - 180;
+  const angleAbout = v => Math.atan2(v.z - camAxis.z, v.y - camAxis.y) * 180 / Math.PI;
+  const at = crank => { assembly.update(poseAt({ crank })); };
+  const flashVisible = n => meshesOf(`ignFlash${n}`).map(m => m.visible);
+
+  it('has the parts with the expected bodies; leads and flashes are visual only', () => {
+    const expected = { ignRotor: 'camIn', ignCap: 'head', ignDistributor: 'head', ignCoil: 'head' };
+    for (let c = 1; c <= 4; c++) expected[`ignBoot${c}`] = 'head';
+    for (const [id, body] of Object.entries(expected)) {
+      const g = partOf(id);
+      expect(g, id).not.toBeNull();
+      expect(g.userData.part.body, id).toBe(body);
+    }
+    for (const id of ['ignLead1', 'ignLead2', 'ignLead3', 'ignLead4', 'ignLeadCoil', 'ignFlash1', 'ignFlash2', 'ignFlash3', 'ignFlash4', 'ignFlashCoil']) {
+      const ms = meshesOf(id);
+      expect(ms.length, id).toBeGreaterThan(0);
+      for (const m of ms) expect(m.userData.noCollide, id).toBe(true);
+    }
+    const shells = meshesOf('ignCap').filter(m => m.userData.capShell);
+    expect(shells).toHaveLength(1);
+    for (const m of meshesOf('ignCap')) expect(m.userData.housing).toBeUndefined();
+  });
+
+  it('sweep crank 0..720 in 5 deg steps: no collisions of the ignition parts with anything', () => {
+    const res = sweep(assembly, bodies, poses(5));
+    expect(res.collisions.size, formatCollisions(res)).toBe(0);
+  }, 600000);
+
+  it('two-sided contact: rotor tip vs each cap terminal', () => {
+    for (let c = 0; c < 4; c++) {
+      const a = terminalAngle(c);
+      at(2 * a);                                                     // rotor angle = crank / 2 = terminal angle
+      expect(bodiesIntersect(bodies, 'camIn', 'head'), `terminal ${c + 1} nominal`).toBe(false);
+      const off = new THREE.Vector3(0, Math.cos(a), Math.sin(a)).multiplyScalar(IG.airGap + 0.3);
+      expect(bodiesIntersectDisplaced(bodies, 'head', 'camIn', { offset: off }), `terminal ${c + 1} displaced`).toBe(true);
+    }
+  });
+
+  it('spark flash, rotor tip and arc are synchronised with the cylinder that fires', () => {
+    for (let c = 0; c < 4; c++) {
+      const crank = sparkCrankDeg(c, 0.3);
+      at(rad(crank + 1));
+      for (let n = 1; n <= 4; n++) {
+        const vis = flashVisible(n);
+        expect(vis.every(v => v === (n === c + 1)), `flash ${n} while cylinder ${c + 1} sparks`).toBe(true);
+      }
+      expect(partOf('ignFlashCoil').children[0].visible).toBe(true);
+      const arc = root.getObjectByName(`ignArc${c + 1}`);
+      const arcAngle = angleAbout(arc.getWorldPosition(new THREE.Vector3()));
+      expect(Math.abs(wrapDeg(arcAngle - terminalAngle(c) * 180 / Math.PI)), 'arc').toBeLessThan(1);
+      const tip = root.getObjectByName('rotorTip');
+      const centre = new THREE.Box3().setFromObject(tip).getCenter(new THREE.Vector3());
+      expect(Math.abs(wrapDeg(angleAbout(centre) - terminalAngle(c) * 180 / Math.PI)), 'tip').toBeLessThan(IG.rotor.tipHalfAngleDeg);
+      at(rad(crank - 5));
+      for (let n = 1; n <= 4; n++) expect(flashVisible(n).some(Boolean), `flash ${n} before spark ${c + 1}`).toBe(false);
+      expect(partOf('ignFlashCoil').children[0].visible).toBe(false);
+      expect(partOf('ignRotor').rotation.x).toBeCloseTo(rotorAngle(rad(crank - 5)), 9);
+    }
+  });
+
+  it('flash is a pure function of the pose and fades with the pose flash value', () => {
+    const pose = poseAt({ crank: rad(sparkCrankDeg(0, 0.3)) });
+    assembly.update(pose);
+    const m0 = root.getObjectByName('ignLeadGlow1').material;
+    expect(m0.opacity).toBeCloseTo(1, 9);
+    pose.cylinders[0].flash = 0.5;
+    assembly.update(pose);
+    expect(m0.opacity).toBeCloseTo(0.675, 9);
+    expect(root.getObjectByName('ignPlugGlow1').scale.x).toBeCloseTo(1.0, 9);
+    delete pose.cylinders[0].flash; pose.cylinders[0].spark = true;       // no flash field: falls back to spark
+    assembly.update(pose);
+    expect(m0.opacity).toBeCloseTo(1, 9);
+    expect(m0).not.toBe(root.getObjectByName('ignLeadGlow2').material);
+  });
+
+  it('HT leads are routed clear of the camshafts and the crank, and end in the right towers', () => {
+    const curves = buildLeadCurves(SPEC, LOCAL);
+    const camX1 = E.block.rearX - 10, camX0 = E.timingDrive.x - E.timingDrive.width / 2 - LOCAL.sprocketFlange - 3;
+    const lists = [...curves.leads, curves.coil];
+    for (const cv of lists) {
+      for (const p of cv.getPoints(200)) {
+        expect(Math.hypot(p.y, p.z)).toBeGreaterThanOrEqual(200);
+        if (p.x >= camX0 && p.x <= camX1) {
+          for (const k of ['in', 'ex']) {
+            const c = D.valve[k].camAxis;
+            expect(Math.hypot(p.y - c.y, p.z - c.z)).toBeGreaterThanOrEqual(32);
+          }
+        }
+      }
+    }
+    curves.leads.forEach((cv, i) => {
+      expect(cv.getPoint(1).distanceTo(towerMouth(SPEC, LOCAL, i)), `lead ${i + 1}`).toBeLessThanOrEqual(3);
+    });
+    expect(curves.coil.getPoint(1).distanceTo(centreMouth(SPEC)), 'coil lead').toBeLessThanOrEqual(3);
+  });
+
+  it('ignition triangle count', () => {
+    let tris = 0;
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      let p = o; while (p && !p.userData.part) p = p.parent;
+      if (p && p.userData.part.id.startsWith('ign')) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    });
+    console.log(`ignition triangles ${tris}`);
+    expect(tris).toBeLessThan(60000);
   });
 });

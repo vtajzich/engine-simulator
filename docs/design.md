@@ -54,6 +54,7 @@ A **part** is a `THREE.Group` (or Mesh) with `userData.part = { id, body, label,
 - Every descendant Mesh of a part belongs to it. `mesh.userData.noCollide = true` marks visual-only meshes that are
   excluded from collision checks (gas, belt, springs, glow, labels). Use it sparingly and never for a real moving solid.
 - `mesh.userData.housing = true` marks housing meshes the UI may ghost / cut / hide.
+- `mesh.userData.capShell = true` marks the distributor cap shell (`ignCap`): the UI makes it transparent instead of hiding it, so the rotor and terminals stay visible.
 - Use `partGroup(id, body, label, extra)` from `src/geo/parts.js` to create parts.
 
 Body names (fixed — the sim's power-flow highlighting and the collision rules use them):
@@ -61,11 +62,11 @@ Body names (fixed — the sim's power-flow highlighting and the collision rules 
 | body | parts (Czech label) |
 |---|---|
 | `block` (static) | blok motoru, ložiska klikového hřídele |
-| `head` (static) | hlava válců, zapalovací svíčky, víka ložisek vaček |
-| `crank` | klikový hřídel, řemenice rozvodu, setrvačník, víko spojky (štít) |
+| `head` (static) | hlava válců, zapalovací svíčky, víka ložisek vaček, rozdělovač (`ignDistributor`), víko rozdělovače (`ignCap`), zapalovací cívka (`ignCoil`), koncovky kabelů svíček (`ignBoot1..4`) |
+| `crank` | klikový hřídel, řemenice rozvodu, setrvačník, víko spojky (štít), pilotní ložisko (`pilotBearing`, podpírá přední čep vstupního hřídele) |
 | `piston1..4` | píst + pístní čep + kroužky |
 | `rod1..4` | ojnice |
-| `camIn`, `camEx` | sací / výfuková vačková hřídel + vačky + řemenice |
+| `camIn`, `camEx` | sací / výfuková vačková hřídel + vačky + řemenice (`camIn` also carries the distributor rotor `ignRotor`, palec rozdělovače) |
 | `valveIn{1..4}{a,b}`, `valveEx{1..4}{a,b}` | ventil + miska pružiny + hrníčkové zdvihátko |
 | `pressurePlate` | přítlačný kotouč |
 | `finger01..finger18` | jazýčky talířové pružiny (each a rigid lever) |
@@ -83,7 +84,7 @@ Body names (fixed — the sim's power-flow highlighting and the collision rules 
 | `shiftLever` | řadicí páka |
 | `gearCase` (static) | skříň převodovky (walls, quill, idler shaft, rail guides) |
 
-Visual-only (noCollide) parts: `belt`, `spring*`, `gas1..4`, `spark1..4`.
+Visual-only (noCollide) parts: `belt`, `spring*`, `gas1..4`, `spark1..4`, `ignLead1..4`, `ignLeadCoil`, `ignFlash1..4`, `ignFlashCoil`.
 
 ## 4. Module interface
 
@@ -112,7 +113,7 @@ pose = {
   sleeves: { s12, s34, s5 },   // mm from hub centre, + = toward rear. rails/forks follow the sleeves 1:1
   rings: { ring1, ring2, ring3, ring4, ring5 },   // each { angle (rad, absolute), push (0 … 1) } push 1 = pressed on the cone
   lever: { col, row },         // each −1 … 1 (continuous); see SPEC.gearbox.shift.gate
-  cylinders: [ { psiDeg, stroke, burn, pBar, tempK } ×4 ],   // gas state, visual only
+  cylinders: [ { psiDeg, stroke, burn, pBar, tempK, spark, flash } ×4 ],   // gas state, visual only; flash 0…1 = spark flash envelope (1 at the spark, 0 after SPEC.engine.ignition.flashDeg crank deg); the app may raise flash for a short wall-clock hold and then sets flashAngle = the angle-only value (drives the rotor arc)
   flow: Set<string>            // bodies currently carrying drive torque (for highlighting), visual only
 }
 ```

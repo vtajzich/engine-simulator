@@ -372,6 +372,81 @@ try {
   const dsk = await S(); const rpmIn = await page.evaluate(() => window.__app.sim.state.rpm);
   check('clutch chapter: pedal down in neutral -> input shaft stops, engine keeps running', Math.abs(rpmIn.input) < 30 && rpmIn.engine > 500, JSON.stringify(rpmIn));
 
+  // ---------------------------------------------------------------- clutch link: the pedal must make a visible difference in the cut view
+  {
+    const shot = async (file, pedal) => {
+      await page.evaluate(p => {
+        const a = window.__app;
+        a.setChapter('spojka'); a.app.setView('celek', { instant: true }); a.setHousing('cut'); a.setPaused(true);
+        const s = a.sim.state;   // after setChapter: the chapter setup resets (replaces) the sim
+        a.setInputs({ clutchPedal: p }); s.clutchPedal = p;
+        if (p >= 1) { s.clutch.capacityNm = 0; s.clutch.locked = false; }
+        a.app.poseDirty = true;
+      }, pedal);
+      await page.waitForTimeout(2300); await nonBlank();
+      const clip = await page.evaluate(() => {
+        const a = window.__app.app, THREE = a.THREE, r = a.scene.canvas.getBoundingClientRect();
+        const xs = [], ys = [];
+        for (const x of [355, 450]) for (const y of [-150, 160]) for (const z of [-1, 1]) {
+          const v = new THREE.Vector3(x, y, z * 0).project(a.scene.camera);
+          xs.push(r.left + (v.x * 0.5 + 0.5) * r.width); ys.push(r.top + (-v.y * 0.5 + 0.5) * r.height);
+        }
+        const x0 = Math.max(r.left, Math.min(...xs)), y0 = Math.max(r.top, Math.min(...ys));
+        return { x: Math.floor(x0), y: Math.floor(y0), width: Math.floor(Math.min(r.right, Math.max(...xs)) - x0), height: Math.floor(Math.min(r.bottom, Math.max(...ys)) - y0) };
+      });
+      await page.screenshot({ path: path.join(outDir, file + tag + '.png') });
+      const buf = await page.screenshot({ clip });
+      return { buf, clip };
+    };
+    const a0 = await shot('34-clutch-link-0', 0);
+    const a1 = await shot('35-clutch-link-1', 1);
+    const changed = await page.evaluate(async ([b0, b1]) => {
+      const dec = async b64 => {
+        const bm = await createImageBitmap(await (await fetch('data:image/png;base64,' + b64)).blob());
+        const c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height;
+        const g = c.getContext('2d'); g.drawImage(bm, 0, 0);
+        return g.getImageData(0, 0, c.width, c.height).data;
+      };
+      const [d0, d1] = [await dec(b0), await dec(b1)];
+      let n = 0;
+      for (let i = 0; i < d0.length; i += 4) if (Math.abs(d0[i] - d1[i]) > 24 || Math.abs(d0[i + 1] - d1[i + 1]) > 24 || Math.abs(d0[i + 2] - d1[i + 2]) > 24) n++;
+      return { n, size: d0.length / 4 };
+    }, [a0.buf.toString('base64'), a1.buf.toString('base64')]);
+    report.clutchLinkPixels = changed;
+    check('clutch link: pedal 0 -> 1 changes >= 1500 px in the cut view', changed.n >= 1500, `${changed.n} changed px of ${changed.size} (clip ${JSON.stringify(a0.clip)})`);
+  }
+  // state classes: pedal 0 -> locked, pedal 1 -> open within 1.5 s
+  {
+    await page.evaluate(() => { const a = window.__app; a.setChapter('spojka'); a.app.reset(); a.setPaused(false); a.app.setAssist(false); a.requestGear('N'); a.setInputs({ throttle: 0, clutchPedal: 0, brake: 0 }); });
+    await page.waitForTimeout(600);
+    const st0 = await page.evaluate(() => window.__app.app.clutchLink.state);
+    check('clutch link: idle in neutral, pedal 0 -> state locked', st0 === 'locked', st0);
+    await page.evaluate(() => window.__app.setInputs({ clutchPedal: 1 }));
+    let st1 = null;
+    try { await page.waitForFunction(() => window.__app.app.clutchLink.state === 'open', null, { timeout: 1500 }); st1 = 'open'; } catch { st1 = await page.evaluate(() => window.__app.app.clutchLink.state); }
+    check('clutch link: pedal 1 -> state open within 1.5 s', st1 === 'open', st1);
+  }
+  // demo buttons of the chapter
+  {
+    await page.evaluate(() => { const a = window.__app; a.setChapter('spojka'); a.app.reset(); a.setPaused(false); a.setHousing('cut'); a.app.setView('celek', { instant: true }); });
+    await page.waitForTimeout(2300);
+    await page.locator('#panel button', { hasText: 'Ukázat rozpojení' }).click();
+    const sense = () => page.evaluate(() => { const a = window.__app, s = a.sim.state; return { gear: s.gear, eng: s.rpm.engine, inp: s.rpm.input, link: a.app.clutchLink.state, kmh: s.speedKmh, stall: !!a.app.stallFlag }; });
+    let d1 = null;
+    try {
+      await page.waitForFunction(() => { const a = window.__app, s = a.sim.state; return s.gear === '1' && s.rpm.engine > 600 && Math.abs(s.rpm.input) < 5 && a.app.clutchLink.state === 'open'; }, null, { timeout: 6000, polling: 100 });
+    } catch { /* reported below */ }
+    d1 = await sense();
+    check('clutch demo: gear 1, engine > 600 rpm, input shaft stopped, state open', d1.gear === '1' && d1.eng > 600 && Math.abs(d1.inp) < 5 && d1.link === 'open', JSON.stringify(d1));
+    await page.screenshot({ path: path.join(outDir, `36-clutch-demo-open${tag}.png`) });
+    await page.locator('#panel button', { hasText: 'Pustit brzdu' }).click();
+    try {
+      await page.waitForFunction(() => { const a = window.__app, s = a.sim.state; return a.app.clutchLink.state === 'locked' && s.speedKmh > 3; }, null, { timeout: 8000, polling: 100 });
+    } catch { /* reported below */ }
+    const d2 = await sense();
+    check('clutch demo: after releasing the brake the clutch locks, speed > 3 km/h, no stall', d2.link === 'locked' && d2.kmh > 3 && !d2.stall, JSON.stringify(d2));
+  }
+
   // ---------------------------------------------------------------- label stability: anchor dots of rotating bodies must not wobble
   const ROT_BODIES = /^(crank|camIn|camEx|inputShaft|counterShaft|mainShaft|gear[123 5]|gear1|gear2|gear3|gear5|idlerR|sleeve.*|ring.*|clutchDisc|pressurePlate)$/;
   async function labelStability(chapter) {
@@ -413,6 +488,106 @@ try {
   await page.evaluate(() => { const a = window.__app; a.setChapter('rozvod'); a.app.setView('rez', { instant: true }); a.setPaused(true); });
   await page.waitForTimeout(600); await page.screenshot({ path: path.join(outDir, `49-rozvod-rez${tag}.png`) });
   await page.evaluate(() => { window.__app.setPaused(false); });
+
+  // ---------------------------------------------------------------- ignition: always-visible plugs, transparent cap, spark in sync
+  {
+    const { pathToFileURL } = await import('node:url');
+    const ign = await import(pathToFileURL(path.join(root, 'src/kin/ignition.js')).href);
+    const NEXT = { 1: 3, 3: 4, 4: 2, 2: 1 };
+    const thrNow = () => page.evaluate(() => { const e = window.__app.sim.state.engine; return e.running ? e.throttleEff : 0; });
+    // visible flash meshes per cylinder (1-based): [bool x4]
+    const flashSeen = () => page.evaluate(() => [1, 2, 3, 4].map(n => { let v = false; window.__app.app.index.parts.get('ignFlash' + n).traverse(o => { if (o.isMesh && o.visible) v = true; }); return v; }));
+
+    // 1. plugs visible from above with the housings hidden and cut
+    await page.evaluate(() => { const a = window.__app; a.setChapter('prehled'); a.setPaused(true); a.app.flyTo({ position: [150, 760, 260], target: [150, 300, 0] }, 0); });
+    await page.waitForTimeout(400);
+    for (const mode of ['hidden', 'cut']) {
+      const res = await page.evaluate(m => {
+        const a = window.__app, app = a.app, T = app.THREE; a.setHousing(m); app.poseDirty = true; app.updatePose(); a.renderOnce();
+        const cam = a.camera; cam.updateMatrixWorld(true);
+        const meshes = []; a.assembly.root.traverseVisible(o => { if (o.isMesh && !o.isInstancedMesh && !(o.material.transparent && o.material.opacity < 0.5)) meshes.push(o); });
+        const partOf = o => { for (let p = o; p; p = p.parent) if (p.userData?.part) return p.userData.part.id; return ''; };
+        const rc = new T.Raycaster(), out = [];
+        for (let n = 1; n <= 4; n++) {
+          const box = new T.Box3().setFromObject(app.index.parts.get('ignBoot' + n)), c = box.getCenter(new T.Vector3());
+          const dir = c.clone().sub(cam.position), dist = dir.length(); rc.set(cam.position, dir.normalize()); rc.far = dist + 5;
+          const hit = rc.intersectObjects(meshes, false).find(h => !(h.object.material.clippingPlanes ?? []).some(pl => pl.distanceToPoint(h.point) < 0) && !(h.object.userData.housing && h.object.material.opacity < 0.5));
+          out.push({ n, id: hit ? partOf(hit.object) : null });
+        }
+        return out;
+      }, mode);
+      res.forEach(r => check(`ignition: boot ${r.n} visible from above (housings ${mode})`, r.id && /^(ign|sparkPlug)/.test(r.id), `first hit ${r.id}`));
+    }
+
+    // 2. cap display by mode, in a chapter without and with a focus list
+    for (const chap of ['prehled', 'poradi']) {
+      for (const mode of ['solid', 'ghost', 'cut', 'hidden']) {
+        const r = await page.evaluate(([c, m]) => {
+          const a = window.__app; a.setChapter(c); a.setHousing(m); a.app.poseDirty = true; a.app.updatePose();
+          const app = a.app, shells = []; app.assembly.root.traverse(o => { if (o.userData.capShell) shells.push(o); });
+          const vis = o => { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; };
+          let rotorMeshes = 0, rotorVisible = 0; app.index.parts.get('ignRotor').traverse(o => { if (o.isMesh) { rotorMeshes++; if (vis(o)) rotorVisible++; } });
+          return { n: shells.length, focus: !!app.chapter.focus, mat: shells.map(s => ({ t: s.material.transparent, o: s.material.opacity, dw: s.material.depthWrite, vis: vis(s), clip: s.material.clippingPlanes?.length ?? 0 })), rotorMeshes, rotorVisible };
+        }, [chap, mode]);
+        const ok = r.n === 1 && r.mat.every(x => x.vis && x.clip === 0 && (mode === 'solid' ? !x.t && x.o === 1 && x.dw : x.t && x.o < 0.5 && !x.dw)) && r.rotorMeshes > 0 && r.rotorVisible === r.rotorMeshes;
+        check(`ignition: cap in "${mode}" in chapter ${chap}${r.focus ? ' (focus list)' : ''}`, ok, JSON.stringify(r));
+      }
+    }
+
+    // 3. + 5. flash in sync with the crank angle (paused), with and without the gas layer
+    await page.evaluate(() => { const a = window.__app; a.setChapter('poradi'); a.app.reset(); a.setPaused(true); });
+    const thr = await thrNow();
+    const setCrank = psi => page.evaluate(p => { const a = window.__app; const cur = (((a.sim.state.thetaCrank * 180 / Math.PI) % 720) + 720) % 720; a.app.rotateCrank((p - cur) * Math.PI / 180); a.app.poseDirty = true; a.app.updatePose(); }, psi);
+    for (let c = 0; c < 4; c++) {
+      await setCrank((ign.sparkCrankDeg(c, thr) + 1) % 720);
+      const f = await flashSeen();
+      check(`ignition: crank at spark of cylinder ${c + 1} + 1 deg -> only flash ${c + 1}`, f.every((v, i) => v === (i === c)), JSON.stringify(f) + ` thr ${thr.toFixed(2)}`);
+    }
+    await page.evaluate(() => window.__app.app.setGas(false));
+    await setCrank((ign.sparkCrankDeg(2, thr) + 1) % 720);
+    const fNoGas = await flashSeen(), gasVis = await page.evaluate(() => window.__app.app.gasOn);
+    check('ignition: flash 3 visible with the gas layer off', gasVis === false && fNoGas.every((v, i) => v === (i === 2)), JSON.stringify(fNoGas));
+    await setCrank((ign.sparkCrankDeg(2, thr) + 60) % 720);
+    check('ignition: no flash 60 deg after the spark', (await flashSeen()).every(v => !v));
+    await page.evaluate(() => window.__app.app.setGas(true));
+
+    // 4. flash while the engine runs (wall clock)
+    const sampleFlash = (ms, settle = 0) => page.evaluate(([ms2, settle2]) => new Promise(resolve => {
+      const parts = [1, 2, 3, 4].map(n => window.__app.app.index.parts.get('ignFlash' + n)), prev = [false, false, false, false], events = [], seen = [0, 0, 0, 0], t0 = performance.now();
+      let any = 0;
+      const tick = () => {
+        const el = performance.now() - t0;
+        parts.forEach((p, i) => { let v = false; p.traverse(o => { if (o.isMesh && o.visible) v = true; }); if (el >= settle2) { if (v) { seen[i]++; any++; } if (v && !prev[i]) events.push(i + 1); } prev[i] = v; });
+        if (el < ms2) requestAnimationFrame(tick); else resolve({ events, seen, any });
+      };
+      requestAnimationFrame(tick);
+    }), [ms, settle]);
+    await page.evaluate(() => { const a = window.__app; a.setChapter('poradi'); a.app.reset(); a.setPaused(false); a.app.setAssist(true); a.requestGear('N'); a.setInputs({ throttle: 0, ignition: true }); a.setSlowMode('rot'); a.setSlow(1 / 20); });
+    await page.waitForTimeout(1500);
+    const slow = await sampleFlash(4000);
+    const okOrder = slow.events.length >= 4 && slow.events.every((c, i) => i === 0 || NEXT[slow.events[i - 1]] === c);
+    check('ignition: running at 1/20, flashes appear in the order 1-3-4-2', okOrder, `events ${slow.events.join('')}, frames visible ${slow.seen}`);
+    await page.evaluate(() => window.__app.setSlow(1));
+    const fast = await sampleFlash(2000);
+    check('ignition: running at 1x, every cylinder flash seen (hold)', fast.seen.every(n => n > 0), `frames visible ${fast.seen}`);
+    await page.evaluate(() => window.__app.setInputs({ ignition: false }));
+    const off1 = await sampleFlash(1500, 250);
+    check('ignition: after "Vypnout motor" no flash appears while the engine coasts down', off1.any === 0, `frames visible ${off1.seen}`);
+    await page.evaluate(() => window.__app.fastForward(12, {}));
+    const rpm0 = await page.evaluate(() => window.__app.sim.state.rpm.engine);
+    const off2 = await sampleFlash(1500);
+    check('ignition: engine at 0 rpm, no flash within 1.5 s', Math.abs(rpm0) < 1 && off2.any === 0, `${rpm0.toFixed(1)} rpm, frames visible ${off2.seen}`);
+
+    // 6. screenshots in the new view: spark of cylinder 1 caught on the plug, lead and rotor tip
+    await page.evaluate(() => { const a = window.__app; a.setChapter('poradi'); a.app.reset(); a.app.setView('zapalovani', { instant: true }); a.setPaused(true); });
+    await setCrank((ign.sparkCrankDeg(0, await thrNow()) + 1) % 720);
+    for (const [mode, file] of [['hidden', '40-ignition-hidden'], ['cut', '41-ignition-cut'], ['solid', '42-ignition-solid']]) {
+      await page.evaluate(m => { const a = window.__app; a.setHousing(m); a.app.poseDirty = true; a.app.updatePose(); }, mode);
+      await page.waitForTimeout(500); await nonBlank();
+      await page.screenshot({ path: path.join(outDir, file + tag + '.png') });
+    }
+    await page.evaluate(() => window.__app.setPaused(false));
+  }
 
   // frame time
   await page.evaluate(() => { const a = window.__app; a.setChapter('prehled'); a.setTimeScale(1 / 4); });
@@ -470,6 +645,16 @@ try {
       await sample();
       if (shots[id]) await p.screenshot({ path: path.join(outDir, shots[id] + tag + '.png') });
     }
+    await p.evaluate(() => { const a = window.__app; a.setChapter('poradi'); a.app.setView('zapalovani', { instant: true }); a.app.setLabelsOn(true); });
+    await p.waitForTimeout(1500);
+    await sample();
+    // clutch-link tags in English
+    await p.evaluate(() => { const a = window.__app; a.setChapter('spojka'); a.app.setLabelsOn(true); });
+    await p.waitForTimeout(1500);
+    const tg = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll('.linktag')].map(e => [e.dataset.k, e.textContent])));
+    check('language: EN clutch-link tags are English', /^engine −?\d+ rpm$/.test(tg.engine ?? '') && /^disc \+ input shaft −?\d+ rpm$/.test(tg.shaft ?? '')
+      && ['COUPLED · friction grips', 'SLIPPING', 'DISCONNECTED · gap'].includes(tg.state) && !CZ_CHARS.test(Object.values(tg).join('')), JSON.stringify(tg));
+    await sample();
     // chapter views / actions / legend: click every button of every chapter's action row once (text only)
     // glossary + simplifications tabs
     await p.click('.p-tab[data-k=glossary]'); await sample();

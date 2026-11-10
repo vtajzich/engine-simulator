@@ -32,6 +32,16 @@ export const SPEC = {
     targetCompressionRatio: 11.0,              // SRC; the geometry below yields ≈ 11.0 (verified by test)
     idleRpm: 800, redlineRpm: 7500, maxTorqueNm: 190,
     sparkAdvanceDeg: { idle: 10, load: 30 },   // EST, deg BTDC
+    ignition: {
+      drivenBy: 'in',                 // SRC (weak): distributor keyed to the intake camshaft; rear end, coaxial — EST
+      midAdvanceDeg: 20,              // cap terminals are centred on the rotor position at mid spark advance (10…30° BTDC)
+      shaftDiameter: 12,              // MODEL
+      rotor: { tipRadius: 30, tipHalfAngleDeg: 8, x: [393, 405] },   // MODEL; tip arc covers ±5° cam (advance range) with margin
+      airGap: 0.8,                    // MODEL radial gap rotor tip → cap terminal (real ≈ 0.3–0.8 mm)
+      base: { x: [349, 387], outerRadius: 38 },                      // MODEL static body bolted behind the head
+      cap: { x: [387, 430], outerRadius: 42, wall: 2.5, towerLength: 16 },
+      flashDeg: 12,                   // MODEL: visual spark flash lasts this many crank degrees after the spark
+    },
 
     piston: {
       radialClearance: 0.25,                   // MODEL (real ≈ 0.02–0.04)

@@ -4,15 +4,19 @@ import { SPEC } from '../spec.js';
 import { derive, rad, deg, mod } from '../kin/derive.js';
 import { valveLift, camAngle } from '../kin/cam.js';
 import { pistonCrownY, throwAngle, cylinderVolume } from '../kin/engine.js';
+import { terminalAngle } from '../kin/ignition.js';
 import { mat } from '../geo/materials.js';
 import { partGroup, segs } from '../geo/parts.js';
 import { buildHeadGeometry, buildPedestalGeometry, headTopY } from '../geo/topHead.js';
 import { buildValveGeometries, latheSolid } from '../geo/topValve.js';
 import { chargeCloud, portFrame, buildManifoldGeometry, MANIFOLD_LEN } from '../geo/topGas.js';
+import {
+  buildRotorGeometries, buildDistributorGeometry, buildCapGeometries, buildCoilGeometry, buildBootGeometry, buildLeadCurves, leadTube,
+} from '../geo/topIgnition.js';
 import { lobeGeometry, shaftGeometry, sprocketGeometry, flangeGeometry, beltPath, beltBandGeometry } from '../geo/topCam.js';
 
 // Dimensions that are not in SPEC (decorative / construction choices of this module).
-const LOCAL = {
+export const LOCAL = {
   headTopAbove: 60,        // head casting top = deckHeight + this (SPEC.head.height is the visual casting height; only the lower part is modelled)
   halfZ: 78,               // head half width in Z
   wellStart: 25, wellRadius: 11,          // plug well: floor at apex + wellStart, radius
@@ -22,6 +26,18 @@ const LOCAL = {
   tulipLength: 11, retainerRadius: 12.5, retainerFromTip: 10, retainerThickness: 3, bucketWall: 2,
   beltThickness: 2, beltToothPitch: 8, sprocketFlange: 1.5,
   plugShellRadius: 6, plugNutRadius: 9.2,
+  plugTerminalTop: 88.2,   // plug terminal top above the roof apex (= wellStart + 8.2 + 55 in the plug lathe below)
+  ign: {                   // ignition construction constants (geometry in src/geo/topIgnition.js)
+    hubRadius: 8, armHalfWidth: 4, armInset: 2, tipDepth: 4, tipInset: 1,        // rotor: hub, arm, brass tip
+    boreClearance: 1, baseWall: 3, baseFloor: 4,                                  // distributor base cup
+    footX: [343, 370], footBottomY: 270, footTopY: 310, footHalfWidth: 20,        // foot down to the head top (overlaps the casting)
+    towerOuter: 5.5, towerInner: 4.2, postDepth: 6.2, postHalfWidth: 2.5, contactRadius: 2.5, contactGap: 0.3,
+    bootRadius: 8, bootBelow: 10, bootAbove: 18,
+    coil: { diameter: 44, length: 60, x0: 355, y: 320, z: -30, towerX: 45, towerRadius: 6, towerHeight: 14,
+      bracketX: [347, 360], bracketY: [270, 300], bracketHalfWidth: 10 },
+    loomY: 395, loomYStep: 1.5, loomZ: 19, loomPitch: 5, uTurn: 16, coilUTurnExtra: 12, coilLoomRise: 3, leadInsert: 1.5,
+    leadRadius: 3.2, glowRadius: 4.4, plugGlowRadius: 7, arcSize: [6, 9, 6],
+  },
 };
 
 const YELLOW = new THREE.Color();
@@ -284,6 +300,96 @@ export function buildTopEnd(spec = SPEC) {
     gas[i].spark = sparks[i];
   });
 
+  // ───────────── ignition: distributor, cap, coil, boots, HT leads, spark flash (docs/plan/Z1-ignition-model.md) ─────────────
+  const IGN = E.ignition, camAx = D.valve[IGN.drivenBy].camAxis, I = L.ign;
+  const ignRotor = partGroup('ignRotor', 'camIn', 'Palec rozdělovače');
+  ignRotor.position.set(0, camAx.y, camAx.z);
+  {
+    const g = buildRotorGeometries(spec, L);
+    ignRotor.add(new THREE.Mesh(g.shaft, mat('steel')), new THREE.Mesh(g.body, mat('rotorPlastic')));
+    const tipMesh = new THREE.Mesh(g.tip, mat('brass')); tipMesh.name = 'rotorTip';
+    ignRotor.add(tipMesh);
+  }
+  group.add(ignRotor);
+
+  const ignDist = partGroup('ignDistributor', 'head', 'Rozdělovač', { static: true });
+  ignDist.position.set(0, camAx.y, camAx.z);
+  ignDist.add(new THREE.Mesh(buildDistributorGeometry(spec, L), mat('aluminium')));
+  group.add(ignDist);
+
+  const ignCap = partGroup('ignCap', 'head', 'Víko rozdělovače', { static: true });
+  ignCap.position.set(0, camAx.y, camAx.z);
+  {
+    const g = buildCapGeometries(spec, L);
+    const shell = new THREE.Mesh(g.shell, mat('capShell')); shell.userData.capShell = true; shell.name = 'capShell';
+    ignCap.add(shell);
+    g.posts.forEach((pg, i) => { const m = new THREE.Mesh(pg, mat('brass')); m.name = `capTerminal${i + 1}`; ignCap.add(m); });
+    const c = new THREE.Mesh(g.contact, mat('brass')); c.name = 'capCentreContact';
+    ignCap.add(c);
+  }
+  group.add(ignCap);
+
+  const ignCoil = partGroup('ignCoil', 'head', 'Zapalovací cívka', { static: true });
+  ignCoil.add(new THREE.Mesh(buildCoilGeometry(spec, L).geometry, mat('steelDark')));
+  group.add(ignCoil);
+
+  const bootGeo = buildBootGeometry(spec, L);
+  D.cylX.forEach((cx, i) => {
+    const p = partGroup(`ignBoot${i + 1}`, 'head', `Koncovka kabelu svíčky ${i + 1}`, { static: true });
+    p.position.set(cx, apex, 0);
+    p.add(new THREE.Mesh(bootGeo, mat('htLead')));
+    group.add(p);
+  });
+
+  const curves = buildLeadCurves(spec, L);
+  const noCollide = m => { m.userData.noCollide = true; return m; };
+  curves.leads.forEach((cv, i) => {
+    const p = partGroup(`ignLead${i + 1}`, 'head', `Kabel svíčky ${i + 1}`, { static: true });
+    p.add(noCollide(new THREE.Mesh(leadTube(cv, I.leadRadius), mat('htLead'))));
+    group.add(p);
+  });
+  {
+    const p = partGroup('ignLeadCoil', 'head', 'Kabel od cívky', { static: true });
+    p.add(noCollide(new THREE.Mesh(leadTube(curves.coil, I.leadRadius), mat('htLead'))));
+    group.add(p);
+  }
+
+  // spark flash (visual only): own materials per cylinder; opacity / glow scale follow pose.cylinders[i].flash
+  const flashMat = (extra = {}) => new THREE.MeshBasicMaterial({ color: 0xfff4b0, transparent: true, depthWrite: false, ...extra });
+  const ignFlash = [];
+  D.cylX.forEach((cx, i) => {
+    const p = partGroup(`ignFlash${i + 1}`, 'head', `Jiskra zapalování ${i + 1}`, { static: true });
+    const glow = noCollide(new THREE.Mesh(new THREE.SphereGeometry(I.plugGlowRadius, 24, 16), flashMat({ depthTest: false })));
+    glow.position.set(cx, tipY, 0); glow.renderOrder = 20; glow.name = `ignPlugGlow${i + 1}`;
+    const lead = noCollide(new THREE.Mesh(leadTube(curves.leads[i], I.glowRadius), flashMat())); lead.name = `ignLeadGlow${i + 1}`;
+    const a = terminalAngle(i), rArc = IGN.rotor.tipRadius + IGN.airGap / 2;
+    const arc = noCollide(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), flashMat({ color: 0x6fd0ff }))); arc.name = `ignArc${i + 1}`;   // blue-white: contrasts with the cream rotor and the brass contacts
+    arc.position.set((IGN.rotor.x[0] + IGN.rotor.x[1]) / 2, camAx.y + rArc * Math.cos(a), camAx.z + rArc * Math.sin(a));
+    arc.rotation.x = a; arc.scale.set(...I.arcSize);
+    for (const m of [glow, lead, arc]) { m.visible = false; p.add(m); }
+    group.add(p);
+    ignFlash.push({ glow, arc, meshes: [glow, lead] });
+  });
+  const ignFlashCoil = partGroup('ignFlashCoil', 'head', 'Jiskra – přívod od cívky', { static: true });
+  const coilGlow = noCollide(new THREE.Mesh(leadTube(curves.coil, I.glowRadius), flashMat()));
+  coilGlow.visible = false; ignFlashCoil.add(coilGlow);
+  group.add(ignFlashCoil);
+  const flashOf1 = (pose, i) => { const c = pose.cylinders?.[i]; return c ? (c.flash ?? (c.spark ? 1 : 0)) : 0; };
+  function updateIgnition(pose) {
+    let fMax = 0;
+    ignFlash.forEach((fl, i) => {
+      const f = flashOf1(pose, i), on = f > 0.02;
+      fMax = Math.max(fMax, f);
+      for (const m of fl.meshes) { m.visible = on; m.material.opacity = 0.35 + 0.65 * f; }
+      fl.glow.scale.setScalar(0.6 + 0.8 * f);
+      // the arc follows the crank angle only (pose flashAngle), never an app-side hold: it must not linger at a contact the rotor has left
+      const fa = pose.cylinders?.[i]?.flashAngle ?? f;
+      fl.arc.visible = fa > 0.02; fl.arc.material.opacity = 0.5 + 0.5 * fa;
+    });
+    coilGlow.visible = fMax > 0.02;
+    coilGlow.material.opacity = 0.35 + 0.65 * fMax;
+  }
+
   const _c = new THREE.Color(), _c2 = new THREE.Color();
   const EDGE = 0.07;
   const edge = u => Math.min(1, u / EDGE, (1 - u) / EDGE);
@@ -423,11 +529,13 @@ export function buildTopEnd(spec = SPEC) {
       v.springMesh.scale.y = Math.max(0.05, 1 - (d - E.valves.seatGap) / v.springLen);
     }
     const ai = pose.camIn ?? camAngle(cr), ae = pose.camEx ?? camAngle(cr);
+    ignRotor.rotation.x = ai;
     cams.in.cam.rotation.x = ai; cams.in.spr.rotation.x = ai;
     cams.ex.cam.rotation.x = ae; cams.ex.spr.rotation.x = ae;
     crankSpr.rotation.x = cr;
     updateBelt(cr);
     updateGas(pose);
+    updateIgnition(pose);
   }
   update({ crank: 0 });
   return { group, update };
